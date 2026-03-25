@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "easytutor",
+    "name": "EasyTutor",
     "slug": "easytutor",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,22 +9,36 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0d0f12"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.danielmuhoro.easytutor"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0d0f12",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.danielmuhoro.easytutor"
     },
+    "scheme": "easytutor",
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "07e337b0-6ea7-4ab7-92be-5610afacf1de"
+      }
+    },
+    "owner": "dmuhoro"
   }
 }
