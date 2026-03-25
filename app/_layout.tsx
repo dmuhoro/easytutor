@@ -23,17 +23,23 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) {
-    return null; // Return null so the splash screen gracefully holds its frame
-  }
-
+  // We continue even if fonts are not loaded to allow visibility during early testing/web view
   return (
     <>
       <StatusBar style="light" />
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
-      </Stack>
+      {fontsLoaded ? (
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
+        </Stack>
+      ) : (
+        <View style={{ flex: 1, backgroundColor: '#0d0f12', alignItems: 'center', justifyCenter: 'center' }}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
+          </Stack>
+        </View>
+      )}
     </>
   );
 }
