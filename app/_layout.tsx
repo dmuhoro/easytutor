@@ -24,23 +24,13 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // We continue even if fonts are not loaded to allow visibility during early testing/web view
   return (
     <>
       <StatusBar style="light" />
-      {fontsLoaded ? (
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
-        </Stack>
-      ) : (
-        <View style={{ flex: 1, backgroundColor: '#0d0f12', alignItems: 'center', justifyContent: 'center' }}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
-          </Stack>
-        </View>
-      )}
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ presentation: 'modal', headerShown: false }} />
+      </Stack>
     </>
   );
 }
