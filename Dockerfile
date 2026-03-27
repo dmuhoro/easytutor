@@ -12,7 +12,7 @@ COPY . .
 
 # Build the web version
 # This generates the static files in the 'dist' directory
-RUN npx expo export --platform web
+RUN CI=1 npx expo export --platform web
 
 # Final stage: Use a lightweight server to serve the static files
 FROM node:20-alpine
@@ -23,7 +23,7 @@ WORKDIR /app
 RUN npm install -g serve
 
 # Copy only the built files from the builder stage
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist .
 
 # Expose the port matches the docker-compose.yml
 EXPOSE 8081

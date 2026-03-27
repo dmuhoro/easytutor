@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { View } from 'react-native';
+import { View, Text } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -24,8 +24,13 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
+  console.log("RootLayout: rendered", { fontsLoaded, fontError });
+
   return (
     <>
+      <View style={{ position: 'absolute', top: 0, left: 0, zIndex: 9999, backgroundColor: 'red' }}>
+        <Text style={{ color: 'white' }}>BOOTING...</Text>
+      </View>
       <StatusBar style="light" />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
