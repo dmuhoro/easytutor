@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { useSettingsStore } from '../store/settingsStore';
+import { useRoadmapStore } from '../store/roadmapStore';
+import { getSystemPrompt } from '../services/systemPrompts';
 
 // ─── Provider detection ──────────────────────────────────────────────────────
 
@@ -22,11 +24,16 @@ interface QuizQuestion {
   explanation: string;
 }
 
+export type AIChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 // ─── Internal routing helpers ────────────────────────────────────────────────
 
 async function callOllama(
   systemPrompt: string,
-  messages: { role: string; content: string }[],
+  messages: AIChatMessage[],
   ollamaUrl: string,
   ollamaModel: string,
   jsonMode = false,
@@ -52,7 +59,7 @@ async function callOllama(
 
 async function callGroq(
   systemPrompt: string,
-  messages: { role: string; content: string }[],
+  messages: AIChatMessage[],
 ): Promise<string> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -80,7 +87,7 @@ function buildAnthropicClient(): Anthropic {
 
 async function callAnthropic(
   systemPrompt: string,
-  messages: { role: string; content: string }[],
+  messages: AIChatMessage[],
 ): Promise<string> {
   const client = buildAnthropicClient();
   const response = await client.messages.create({
@@ -96,7 +103,7 @@ async function callAnthropic(
 
 async function getAIResponse(
   systemPrompt: string,
-  messages: { role: string; content: string }[],
+  messages: AIChatMessage[],
   jsonMode = false,
 ): Promise<string> {
   const { useLocalLLM, ollamaUrl, ollamaModel } = useSettingsStore.getState();
@@ -116,7 +123,7 @@ async function getAIResponse(
 
 export async function askTutor(
   systemPrompt: string,
-  messages: { role: 'user' | 'assistant'; content: string }[],
+  messages: AIChatMessage[],
 ): Promise<AIResponse> {
   try {
     const data = await getAIResponse(systemPrompt, messages);
@@ -128,36 +135,97 @@ export async function askTutor(
   }
 }
 
+import { RoadmapSchema, QuizQuestionSchema } from './schemas';
+import { SUBJECTS } from './subjects';
+
+let isGeneratingRoadmap = false;
+
+export async function generateStudyRoadmap(topic: string, retries = 2): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (isGeneratingRoadmap) return { success: false, error: 'A generation is already in progress.' };
+  
+  isGeneratingRoadmap = true;
+  
+  const prompt = `Generate a structured 7-day study roadmap for the topic: "${topic}".
+  For each day, provide a title and 3-4 specific, actionable study tasks.
+  Return the response as a valid JSON object with the following structure:
+  {
+    "title": "Roadmap Title",
+    "days": [
+      {
+        "day": 1,
+        "title": "Day 1 Title",
+        "tasks": ["Task 1", "Task 2", "Task 3"]
+      },
+      ... up to day 7
+    ]
+  }
+  Be concise and practical. Output ONLY the JSON object. No markdown, no extra text.`;
+
+  try {
+    const { learningMode } = useRoadmapStore.getState();
+    const basePrompt = getSystemPrompt(learningMode);
+    const fullSystemPrompt = `${basePrompt} You are a strictly JSON API.`;
+    
+    const res = await getAIResponse(fullSystemPrompt, [{ role: 'user', content: prompt }], true);
+    
+    // Attempt to extract JSON
+    const jsonMatch = res.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON found in response");
+    
+    const parsed = JSON.parse(jsonMatch[0].trim());
+    const validation = RoadmapSchema.safeParse(parsed);
+    
+    if (!validation.success) {
+      isGeneratingRoadmap = false;
+      if (retries > 0) return generateStudyRoadmap(topic, retries - 1);
+      throw new Error(`Validation failed: ${validation.error.message}`);
+    }
+    
+    isGeneratingRoadmap = false;
+    return { success: true, data: validation.data };
+  } catch (error: any) {
+    isGeneratingRoadmap = false;
+    console.error('generateStudyRoadmap Error:', error.message);
+    if (retries > 0) return generateStudyRoadmap(topic, retries - 1);
+    return { success: false, error: error.message };
+  }
+}
+
+
 export async function generateQuizQuestion(
   unit: string,
   topic: string,
-): Promise<{ success: true; data: QuizQuestion } | { success: false; error: string }> {
-  const systemPrompt =
-    'You are a strictly JSON API. Respond ONLY with a raw JSON object with these exact properties: question (string), options (array of 4 strings), correct (zero-indexed number), explanation (string). No markdown, no ```json.';
-  const userMessage = `Generate a challenging multiple-choice question for the unit '${unit}' on the topic '${topic}'.`;
-
+  retries = 2
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
   try {
+    const { learningMode } = useRoadmapStore.getState();
+    const basePrompt = getSystemPrompt(learningMode);
+    const fullSystemPrompt = `${basePrompt} You are a strictly JSON API. Respond ONLY with a raw JSON object with these exact properties: question (string), options (array of 4 strings), correct (zero-indexed number), explanation (string). No markdown, no \`\`\`json.`;
+    
+    const userMessage = `Generate a challenging multiple-choice question for the unit '${unit}' on the topic '${topic}'.`;
+
     const outputText = await getAIResponse(
-      systemPrompt,
+      fullSystemPrompt,
       [{ role: 'user', content: userMessage }],
-      true, // request JSON mode for Ollama
+      true, 
     );
 
-    const jsonString = outputText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(jsonString);
+    const jsonString = outputText.match(/\{[\s\S]*\}/)?.[0] ?? outputText;
+    const parsed = JSON.parse(jsonString.trim());
+    
+    const validation = QuizQuestionSchema.safeParse(parsed);
+    
+    if (!validation.success) {
+      if (retries > 0) return generateQuizQuestion(unit, topic, retries - 1);
+      throw new Error(`Validation failed: ${validation.error.message}`);
+    }
 
-    return {
-      success: true,
-      data: {
-        question: parsed.question as string,
-        options: parsed.options as string[],
-        correct: parsed.correct as number,
-        explanation: parsed.explanation as string,
-      },
-    };
+    return { success: true, data: validation.data };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Could not generate quiz question.';
+    if (retries > 0) return generateQuizQuestion(unit, topic, retries - 1);
     console.error('generateQuizQuestion error:', message);
     return { success: false, error: message };
   }
 }
+

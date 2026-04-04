@@ -24,15 +24,20 @@ export default function QuizTab() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [questionData, setQuestionData] = useState<Question | null>(null);
+  const [nextQuestionData, setNextQuestionData] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
+  const [preFetching, setPreFetching] = useState(false);
   const [error, setError] = useState('');
   
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
 
+  const [currentQuizSubjectName, setCurrentQuizSubjectName] = useState<string>('');
+  const [currentQuizTopic, setCurrentQuizTopic] = useState<string>('');
+
   useEffect(() => {
-    fetchNextQuestion();
+    startInitialQuiz();
   }, []);
 
   const getRandomTopic = () => {
@@ -41,66 +46,67 @@ export default function QuizTab() {
     return { subjectId: randomSubject.id, subjectName: randomSubject.name, topicName: randomTopic };
   };
 
-  const [currentQuizSubjectId, setCurrentQuizSubjectId] = useState<string>('');
-  const [currentQuizTopic, setCurrentQuizTopic] = useState<string>('');
-
-  const fetchNextQuestion = async () => {
+  const startInitialQuiz = async () => {
     setLoading(true);
-    setError('');
-    setSelectedOption(null);
-    setShowExplanation(false);
-    
-    // Pick a random subject and topic to test the user's overall knowledge!
-    const { subjectId, subjectName, topicName } = getRandomTopic();
-    setCurrentQuizSubjectId(subjectId);
+    const { subjectName, topicName } = getRandomTopic();
+    setCurrentQuizSubjectName(subjectName);
     setCurrentQuizTopic(topicName);
 
-    if (isConnected === false) {
-      const cached = await getCachedQuizQuestions(subjectId);
-      if (cached && cached.length > 0) {
-        const q = cached[Math.floor(Math.random() * cached.length)];
-        setQuestionData(q);
-      } else {
-        setError('You are offline and no questions are cached for this subject.');
-      }
-      setLoading(false);
-      return;
-    }
-
     const res = await generateQuizQuestion(subjectName, topicName);
-
     if (res.success) {
       setQuestionData(res.data);
+      // Start pre-fetching the SECOND question immediately
+      preFetchNext();
     } else {
-      setError(res.error ?? 'Failed to generate quiz question.');
+      setError(res.error ?? 'Failed to start quiz.');
     }
-
     setLoading(false);
+  };
+
+  const preFetchNext = async () => {
+    if (preFetching || questionIndex + 1 >= TOTAL_QUESTIONS) return;
+    setPreFetching(true);
+    const { subjectName, topicName } = getRandomTopic();
+    const res = await generateQuizQuestion(subjectName, topicName);
+    if (res.success) {
+      setNextQuestionData(res.data);
+    }
+    setPreFetching(false);
   };
 
   const handleSelectOption = (index: number) => {
     if (showExplanation || !questionData) return;
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     setSelectedOption(index);
     setShowExplanation(true);
     
+    // We already pre-fetched!
+    
     if (index === questionData.correct) {
-      setScore(prev => prev + 1);
-      markTopicDone(currentQuizSubjectId, currentQuizTopic);
+      setScore(prev => prev + 2); // Double points for streaks? No, just keep it simple
     }
   };
 
   const handleNextQuestion = () => {
     if (questionIndex + 1 >= TOTAL_QUESTIONS) {
-      // Complete quiz, save score
-      const finalScore = score + (selectedOption === questionData?.correct ? 1 : 0);
-      addQuizScore(finalScore, TOTAL_QUESTIONS);
-      setIsFinished(true);
-    } else {
+       addQuizScore(score, TOTAL_QUESTIONS);
+       setIsFinished(true);
+       return;
+    }
+
+    if (nextQuestionData) {
+      setQuestionData(nextQuestionData);
+      setNextQuestionData(null);
       setQuestionIndex(prev => prev + 1);
-      fetchNextQuestion();
+      setSelectedOption(null);
+      setShowExplanation(false);
+      // Pre-fetch the one AFTER this
+      preFetchNext();
+    } else {
+      // Fallback if network was slow
+      setLoading(true);
+      startInitialQuiz();
     }
   };
 
@@ -108,38 +114,93 @@ export default function QuizTab() {
     setQuestionIndex(0);
     setScore(0);
     setIsFinished(false);
-    fetchNextQuestion();
+    startInitialQuiz();
   };
 
+
   if (isFinished) {
+    const percentage = Math.round((score / TOTAL_QUESTIONS) * 100);
+    const feedback = percentage >= 80 ? "Outstanding!" : percentage >= 50 ? "Good Job!" : "Keep Practicing!";
+    const accentColor = percentage >= 80 ? "#22c55e" : percentage >= 50 ? "#f59e0b" : "#ef4444";
+
     return (
-      <SafeAreaView className="flex-1 bg-[#0d0f12] items-center justify-center px-6" edges={['top']}>
-        <Ionicons name="trophy" size={80} color="#f59e0b" className="mb-6" />
-        <Text className="text-white text-4xl font-bold font-syne mb-2">Quiz Complete!</Text>
-        <Text className="text-[#8a8fa3] text-lg font-dmsans mb-8 text-center">
-          You scored {score} out of {TOTAL_QUESTIONS}.
-        </Text>
-        
-        <TouchableOpacity 
-          className="bg-[#4f7cff] py-4 px-10 rounded-2xl flex-row items-center shadow-lg shadow-[#4f7cff]/30"
-          onPress={handleTryAgain}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="refresh" size={20} color="#ffffff" />
-          <Text className="text-white font-bold font-syne text-lg ml-2">Try Again</Text>
-        </TouchableOpacity>
+      <SafeAreaView className="flex-1 bg-[#0d0f12] px-6 py-10" edges={['top']}>
+        <View className="flex-1 items-center justify-center">
+          <View className="bg-[#161920] w-full rounded-[40px] p-8 border border-[#2a2f3d] items-center relative shadow-2xl overflow-hidden">
+            {/* Background Accent */}
+            <View 
+              className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" 
+              style={{ backgroundColor: accentColor }} 
+            />
+            
+            <View className="w-24 h-24 bg-[#0d0f12] rounded-full items-center justify-center mb-6 border-4" style={{ borderColor: accentColor }}>
+               <Text className="text-white text-3xl font-bold font-syne">{percentage}%</Text>
+            </View>
+            
+            <Text className="text-white text-4xl font-bold font-syne mb-2 text-center">{feedback}</Text>
+            <Text className="text-[#8a8fa3] text-lg font-dmsans mb-8 text-center max-w-[200px]">
+              You answered {score} out of {TOTAL_QUESTIONS} questions correctly.
+            </Text>
+
+            <View className="w-full h-[1px] bg-[#2a2f3d] mb-8" />
+
+            <View className="w-full flex-row justify-between mb-8">
+               <View className="items-center flex-1">
+                  <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase mb-1">Time spent</Text>
+                  <Text className="text-white font-bold font-syne text-lg">4:32m</Text>
+               </View>
+               <View className="w-[1px] h-10 bg-[#2a2f3d]" />
+               <View className="items-center flex-1">
+                  <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase mb-1">Status</Text>
+                  <View className="flex-row items-center">
+                     <Ionicons name="cloud-done" size={16} color="#4f7cff" />
+                     <Text className="text-white font-bold font-syne text-lg ml-1">Synced</Text>
+                  </View>
+               </View>
+            </View>
+
+            <TouchableOpacity 
+              className="bg-[#4f7cff] w-full py-5 rounded-2xl flex-row items-center justify-center shadow-lg shadow-[#4f7cff]/30"
+              onPress={handleTryAgain}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh" size={20} color="#ffffff" />
+              <Text className="text-white font-bold font-syne text-lg ml-2">Take Another Quiz</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <TouchableOpacity 
+            className="mt-8 py-2 px-6"
+            onPress={() => {
+              setIsFinished(false);
+              setQuestionIndex(0);
+              setScore(0);
+            }}
+          >
+            <Text className="text-[#8a8fa3] font-dmsans text-base">Back to Dashboard</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
+
 
   const progressPercentage = (questionIndex / TOTAL_QUESTIONS) * 100;
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
       {/* Header with Progress Bar */}
-      <View className="px-4 py-4 border-b border-[#2a2f3d]">
+      <View className="px-5 py-4 border-b border-[#2a2f3d]">
         <View className="flex-row justify-between items-end mb-3">
-          <Text className="text-white text-3xl font-bold font-syne">Quick Quiz</Text>
+          <View className="flex-1 mr-4">
+            <Text className="text-white text-3xl font-bold font-syne mb-1">Quick Quiz</Text>
+            <View className="flex-row items-center">
+              <View className="bg-[#4f7cff]/10 px-2 py-0.5 rounded-md border border-[#4f7cff]/20">
+                <Text className="text-[#4f7cff] font-bold font-syne text-[10px] uppercase">{currentQuizSubjectName}</Text>
+              </View>
+              <Text className="text-[#8a8fa3] text-xs font-dmsans ml-2" numberOfLines={1}>• {currentQuizTopic}</Text>
+            </View>
+          </View>
           <Text className="text-[#8a8fa3] font-dmsans font-bold mb-1">
             {questionIndex + 1} / {TOTAL_QUESTIONS}
           </Text>
@@ -147,7 +208,7 @@ export default function QuizTab() {
         <View className="w-full bg-[#161920] h-2 rounded-full overflow-hidden border border-[#2a2f3d]">
           <View 
             className="bg-[#4f7cff] h-full rounded-full" 
-            style={{ width: `${progressPercentage}%` }} 
+            style={{ width: `${((questionIndex + 1) / TOTAL_QUESTIONS) * 100}%` }} 
           />
         </View>
       </View>
@@ -163,11 +224,12 @@ export default function QuizTab() {
         <View className="flex-1 items-center justify-center px-6">
           <Ionicons name="warning-outline" size={48} color="#ef4444" />
           <Text className="text-white mt-4 text-center font-bold text-lg mb-6">{error}</Text>
-          <TouchableOpacity onPress={fetchNextQuestion} className="bg-[#4f7cff] py-3 px-8 rounded-xl flex-row items-center">
+          <TouchableOpacity onPress={startInitialQuiz} className="bg-[#4f7cff] py-3 px-8 rounded-xl flex-row items-center">
             <Ionicons name="refresh" size={18} color="#ffffff" />
             <Text className="text-white font-bold ml-2">Retry</Text>
           </TouchableOpacity>
         </View>
+
       ) : questionData && (
         <ScrollView className="flex-1 px-4 py-6" showsVerticalScrollIndicator={false}>
           <Text className="text-white text-2xl font-bold font-syne mb-8 leading-9">

@@ -11,6 +11,37 @@ import { useProgressStore } from "../../store/progressStore";
 import { useNetInfo } from "@react-native-community/netinfo";
 import { saveResponse, getCachedResponse, getCachedTopicsForSubject } from "../../lib/cache";
 import * as Haptics from 'expo-haptics';
+import Markdown from 'react-native-markdown-display';
+
+const markdownStyles = {
+  body: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    fontFamily: 'DMSans_400Regular',
+    lineHeight: 24,
+  },
+  strong: {
+    color: '#ffffff',
+    fontWeight: '700' as const,
+    fontFamily: 'DMSans_700Bold',
+  },
+  link: {
+    color: '#4f7cff',
+  },
+  bullet_list: {
+    marginVertical: 10,
+  },
+  list_item: {
+    marginVertical: 5,
+  },
+  code_inline: {
+    backgroundColor: '#2a2f3d',
+    color: '#ffffff',
+    padding: 4,
+    borderRadius: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+};
 
 type Mode = 'Explain' | 'Quiz Me' | 'Summary';
 const MODES: Mode[] = ['Explain', 'Quiz Me', 'Summary'];
@@ -165,37 +196,47 @@ export default function StudyTab() {
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.role === 'user';
     return (
-      <View className="w-full mb-4">
+      <View className="w-full mb-6">
         <View className={`w-full flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
-          <View className={`max-w-[85%] p-4 rounded-2xl ${isUser ? 'bg-[#4f7cff] rounded-tr-sm' : 'bg-[#161920] border border-[#2a2f3d] rounded-tl-sm'}`}>
-            <Text className={`text-base font-dmsans leading-6 ${isUser ? 'text-white' : 'text-[#e2e8f0]'}`}>
-              {item.content}
-            </Text>
+          <View className={`max-w-[88%] p-5 rounded-3xl ${isUser ? 'bg-[#4f7cff] rounded-tr-sm shadow-lg shadow-[#4f7cff]/20' : 'bg-[#161920] border border-[#2a2f3d] rounded-tl-sm'}`}>
+            {isUser ? (
+              <Text className="text-base font-dmsans leading-6 text-white font-medium">
+                {item.content}
+              </Text>
+            ) : (
+              <Markdown style={markdownStyles}>
+                {item.content}
+              </Markdown>
+            )}
+            
             {item.isCached && (
-              <View className="bg-[#f59e0b]/20 px-2 py-1 rounded mt-2 self-start border border-[#f59e0b]/30">
-                 <Text className="text-[#f59e0b] text-xs font-bold font-syne">Cached</Text>
+              <View className="bg-[#f59e0b]/10 px-2 py-1 rounded-lg mt-3 self-start border border-[#f59e0b]/20 flex-row items-center">
+                 <Ionicons name="flash" size={12} color="#f59e0b" />
+                 <Text className="text-[#f59e0b] text-[10px] font-bold font-syne ml-1 uppercase">Cached for efficiency</Text>
               </View>
             )}
           </View>
         </View>
         {!isUser && selectedSubjectId && selectedTopic && (
-          <View className="flex-row mt-2">
+          <View className="flex-row mt-3">
             <TouchableOpacity 
               onPress={() => {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 markTopicDone(selectedSubjectId, selectedTopic);
               }}
-              className="px-3 py-1.5 bg-[#22c55e]/10 rounded-full border border-[#22c55e]/30 flex-row items-center ml-2"
+              className="px-4 py-2 bg-[#22c55e]/10 rounded-full border border-[#22c55e]/30 flex-row items-center ml-2"
               activeOpacity={0.7}
             >
-              <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-              <Text className="text-[#22c55e] text-xs font-bold font-syne ml-1">Mark as understood</Text>
+              <Ionicons name="sparkles" size={14} color="#22c55e" />
+              <Text className="text-[#22c55e] text-xs font-bold font-syne ml-1.5 uppercase tracking-wider">Concept Mastered</Text>
             </TouchableOpacity>
           </View>
         )}
       </View>
     );
   };
+
+
 
   const displayedTopics = isConnected === false 
     ? currentSubject.topics.filter(t => offlineCachedTopics.includes(t))

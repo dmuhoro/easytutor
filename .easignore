@@ -1,0 +1,21 @@
+**/node_modules
+**/.git
+**/.expo
+**/dist
+**/web-build
+**/.next
+**/.vercel
+**/*.log
+**/.env*
+! .env.local
+**/supabase/migrations
+**/supabase/.temp
+**/assets/unused
+**/test
+**/tests
+**/examples
+**/docs
+./docker-compose.yml
+./Dockerfile
+./README.md
+
