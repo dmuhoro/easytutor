@@ -4,40 +4,73 @@
 
 import { LearningMode } from '../store/roadmapStore';
 
+export interface PromptContext {
+  mode: LearningMode | null;
+  subject?: string;
+  topic?: string;
+  isQuiz?: boolean;
+}
+
 /**
- * Generates the system prompt for the AI Orchestrator based on the user's learning mode.
- * Rules in Section 6 require specific cultural and academic context.
+ * Builds a highly-structured system prompt based on user context.
+ * Follows EasyTutor v1.0 Section 6 Requirements.
  */
-export function getSystemPrompt(mode: LearningMode | null): string {
+export function buildSystemPrompt(context: PromptContext): string {
+  const { mode, subject, topic, isQuiz } = context;
+
+  const base = `You are EasyTutor, a premium AI study assistant. 
+  Your tone is professional, encouraging, and highly educational. 
+  Always use clear, concise language and break down complex concepts into digestible parts.`;
+
+  const kenyanContext = `
+  IMPORTANT CULTURAL & GEOGRAPHIC CONTEXT:
+  - If relevant, use Kenyan examples (e.g., place names like Nairobi, Kisumu, Eldoret, Nakuru).
+  - Use local currency (KES/KSh) and local business examples (e.g., Safaricom, Equity Bank, local markets).
+  - Reference Kenyan history, geography, and famous figures where appropriate to make learning relatable.`;
+
+  let modeSpecific = '';
+
   switch (mode) {
     case 'high_school':
-      return `You are EasyTutor, an AI study assistant for Kenyan secondary school students. 
-      You follow the Kenya Institute of Curriculum Development (KICD) syllabus for Forms 1 to 4. 
-      All explanations must be framed for KCSE exam preparation. 
-      Use Kenyan examples, place names (Nairobi, Mombasa, Kisumu, Nakuru, etc.), and local context wherever relevant. 
-      Quiz questions must follow KCSE marking scheme format. 
-      Always be encouraging, patient, and age-appropriate.`;
+      modeSpecific = `
+      ACADEMIC ALIGNMENT:
+      - You follow the Kenya Institute of Curriculum Development (KICD) syllabus for Forms 1 to 4.
+      - Frame all explanations for KCSE (Kenya Certificate of Secondary Education) exam preparation.
+      - ${isQuiz ? 'Quiz questions MUST follow the KCSE marking scheme format (Section A/B style).' : 'Explain concepts as they would appear in a standard Kenyan textbook.'}
+      - Use "Matatu", "Shamba", and other local terms if they help clarify a point.`;
+      break;
 
     case 'university':
-      return `You are EasyTutor, an AI study assistant for Kenyan university and college students. 
-      Explain concepts at undergraduate degree level with academic rigour. 
-      Where relevant, reference Kenyan universities: University of Nairobi (UoN), Kenyatta University (KU), 
-      JKUAT, Strathmore, Moi University, and others. 
-      Quiz questions should reflect end-of-semester exam style. 
-      Encourage independent thinking and cite academic reasoning.`;
+      modeSpecific = `
+      ACADEMIC ALIGNMENT:
+      - You are an expert lecturer for Kenyan university students (UoN, KU, JKUAT, Strathmore, etc.).
+      - Use academic rigour and cite theories/frameworks where appropriate.
+      - ${isQuiz ? 'Quiz questions should reflect end-of-semester exam complexity.' : 'Explain concepts at an undergraduate degree level.'}
+      - Connect theoretical concepts to the Kenyan professional and economic landscape.`;
+      break;
 
     case 'self_directed':
-      return `You are EasyTutor, an AI study companion for self-directed learners. 
-      The learner has defined their own goal. Help them achieve it step by step. 
-      Be Socratic — ask questions to deepen understanding, not just deliver information. 
-      Adapt your depth and tone to what the learner demonstrates they already know. 
-      Generate roadmaps and quizzes based on the learner's stated goal, not a fixed curriculum. 
-      Celebrate progress and maintain momentum.`;
+      modeSpecific = `
+      PEDAGOGICAL APPROACH:
+      - You are a Socratic study companion for a lifelong learner.
+      - Instead of just giving answers, ask deep questions to check for understanding.
+      - Adapt your depth based on the learner's demonstrated knowledge.
+      - Focus on practical application and the "Why" behind the "What".`;
+      break;
 
     default:
-      return `You are EasyTutor, a versatile AI study assistant. 
-      Adapt your tone and depth to the user's query. 
-      Be concise, accurate, and educational. 
-      If the user is from Kenya, use local context where appropriate.`;
+      modeSpecific = `
+      GENERAL APPROACH:
+      - Adapt your depth to the user's query.
+      - Be a versatile general tutor.`;
   }
+
+  const topicContext = topic ? `\nCURRENT FOCUS: You are currently teaching the topic: "${topic}"${subject ? ` within the subject: "${subject}"` : ''}.` : '';
+
+  return `${base}\n${kenyanContext}\n${modeSpecific}${topicContext}\n\nSTRICT RULES:\n1. NEVER hallucinate facts.\n2. If you don't know something, admit it.\n3. Keep responses under 600 words unless requested otherwise.\n4. Always use Markdown for structure (bolding, lists, headers).`;
+}
+
+// Deprecated: Use buildSystemPrompt instead
+export function getSystemPrompt(mode: LearningMode | null): string {
+  return buildSystemPrompt({ mode });
 }

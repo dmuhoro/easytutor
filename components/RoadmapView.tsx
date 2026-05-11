@@ -8,11 +8,42 @@ interface RoadmapViewProps {
   checkedTasks: Record<number, string[]>;
   onToggleTask: (day: number, task: string) => void;
   containerStyle?: ViewStyle;
+  hideProgress?: boolean;
 }
 
-export const RoadmapView: React.FC<RoadmapViewProps> = ({ roadmap, checkedTasks, onToggleTask, containerStyle }) => {
+export const RoadmapView: React.FC<RoadmapViewProps> = ({ roadmap, checkedTasks, onToggleTask, containerStyle, hideProgress }) => {
+  const totalTasks = roadmap.days.reduce((acc, day) => acc + day.tasks.length, 0);
+  const completedTasksCount = Object.values(checkedTasks).reduce((acc, dayTasks) => acc + dayTasks.length, 0);
+  const progress = totalTasks > 0 ? Math.round((completedTasksCount / totalTasks) * 100) : 0;
+
   return (
-    <ScrollView className="flex-1" showsVerticalScrollIndicator={false} style={containerStyle}>
+    <View className="flex-1" style={containerStyle}>
+      {/* Progress Bar Header */}
+      {!hideProgress && (
+        <View className="mb-8 bg-[#161920] p-6 rounded-[32px] border border-[#2a2f3d]">
+          <View className="flex-row justify-between items-center mb-4">
+            <View>
+              <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase tracking-widest mb-1">Roadmap Progress</Text>
+              <Text className="text-white text-3xl font-bold font-syne">{progress}%</Text>
+            </View>
+            <View className={`w-12 h-12 rounded-full items-center justify-center ${progress === 100 ? 'bg-[#22c55e]/20' : 'bg-[#4f7cff]/20'}`}>
+              <Ionicons 
+                name={progress === 100 ? "trophy" : "analytics"} 
+                size={24} 
+                color={progress === 100 ? "#22c55e" : "#4f7cff"} 
+              />
+            </View>
+          </View>
+          <View className="w-full bg-[#0d0f12] h-2.5 rounded-full overflow-hidden border border-[#2a2f3d]">
+            <View 
+              className={`${progress === 100 ? 'bg-[#22c55e]' : 'bg-[#4f7cff]'} h-full rounded-full`} 
+              style={{ width: `${progress}%` }} 
+            />
+          </View>
+        </View>
+      )}
+
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
       {roadmap.days.map((dayPlan, index) => {
         const isLast = index === roadmap.days.length - 1;
         const completedTasks = checkedTasks[dayPlan.day] || [];
@@ -70,6 +101,7 @@ export const RoadmapView: React.FC<RoadmapViewProps> = ({ roadmap, checkedTasks,
           </View>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 };

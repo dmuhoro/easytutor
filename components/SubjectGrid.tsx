@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ViewStyle } from 'react-native';
+import { View, TouchableOpacity, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Text } from './ui/text';
+import { Card } from './ui/Card';
+import { cn } from '@/lib/utils';
 
 export interface SubjectData {
   id: string;
@@ -17,16 +20,26 @@ interface SubjectGridProps {
 }
 
 export const SubjectGrid: React.FC<SubjectGridProps> = ({ subjects, onPress, containerStyle }) => {
+  const safeSubjects = subjects || [];
+  
+  if (safeSubjects.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center py-20" style={containerStyle}>
+        <Ionicons name="library-outline" size={64} color="#2a2f3d" />
+        <Text className="text-text-secondary font-syne text-xl mt-4">No subjects available</Text>
+      </View>
+    );
+  }
+
   return (
     <View className="flex-row flex-wrap justify-between" style={containerStyle}>
-      {subjects.map((subject) => (
-        <TouchableOpacity
+      {safeSubjects.map((subject) => (
+        <Card
           key={subject.id}
           onPress={() => onPress(subject)}
-          activeOpacity={0.7}
-          className="w-[48%] bg-[#161920] rounded-[32px] p-5 mb-5 border border-[#2a2f3d]/60 shadow-sm"
+          className="w-[48%] mb-5 p-5 border-surface-border/40"
         >
-          <View className="w-12 h-12 bg-[#0d0f12] rounded-2xl items-center justify-center mb-4 border border-[#2a2f3d]">
+          <View className="w-12 h-12 bg-surface-elevated rounded-2xl items-center justify-center mb-4 border border-surface-border">
             <Text className="text-2xl">{subject.icon || '📚'}</Text>
           </View>
           
@@ -35,16 +48,16 @@ export const SubjectGrid: React.FC<SubjectGridProps> = ({ subjects, onPress, con
           </Text>
           
           {subject.description && (
-            <Text className="text-[#8a8fa3] text-[10px] font-dmsans uppercase tracking-widest mb-4" numberOfLines={1}>
+            <Text className="text-text-muted text-[10px] font-dmsans uppercase tracking-widest mb-4" numberOfLines={1}>
               {subject.description}
             </Text>
           )}
 
           <View className="flex-row items-center mt-auto">
-            <Text className="text-[#4f7cff] font-bold text-xs font-syne">Explore</Text>
+            <Text className="text-brand-500 font-bold text-xs font-syne">Explore</Text>
             <Ionicons name="arrow-forward" size={14} color="#4f7cff" style={{ marginLeft: 4 }} />
           </View>
-        </TouchableOpacity>
+        </Card>
       ))}
     </View>
   );

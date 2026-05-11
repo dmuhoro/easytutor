@@ -6,12 +6,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { SUBJECTS } from "../../lib/subjects";
 import { useStudyStore, ChatMessage } from "../../store/studyStore";
 import { askTutor } from "../../lib/api";
-import { explainPrompt, quizPrompt, summaryPrompt } from "../../lib/systemPrompts";
+import { buildSystemPrompt } from "../../services/systemPrompts";
 import { useProgressStore } from "../../store/progressStore";
+import { useRoadmapStore } from "../../store/roadmapStore";
 import { useNetInfo } from "@react-native-community/netinfo";
 import { saveResponse, getCachedResponse, getCachedTopicsForSubject } from "../../lib/cache";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../lib/haptics';
 import Markdown from 'react-native-markdown-display';
+import { VoiceState } from "../../lib/voice";
+import { startListening } from "../../lib/stt";
+import { handleVoiceQuery } from "../../lib/voiceTutor";
 
 const markdownStyles = {
   body: {
@@ -59,6 +63,13 @@ export default function StudyTab() {
     clearMessages 
   } = useStudyStore();
 
+  const { learningMode } = useRoadmapStore();
+
+  const currentSubject = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+
+  // Find the actual Topic object from the selectedTopic name/state
+  const currentTopicObj = currentSubject.topics.find(t => t.title === selectedTopic);
+
   const { markTopicDone } = useProgressStore();
   const { isConnected } = useNetInfo();
 
@@ -66,11 +77,10 @@ export default function StudyTab() {
   const [mode, setMode] = useState<Mode>('Explain');
   const [loading, setLoading] = useState(false);
   const [offlineCachedTopics, setOfflineCachedTopics] = useState<string[]>([]);
-  
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+
   const flatListRef = useRef<FlatList>(null);
   const fadeAnim = useRef(new Animated.Value(0.3)).current;
-
-  const currentSubject = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
 
   useEffect(() => {
     if (loading) {
@@ -90,7 +100,7 @@ export default function StudyTab() {
       setSelectedSubject(params.subjectId);
       const subject = SUBJECTS.find(s => s.id === params.subjectId);
       if (subject && subject.topics.length > 0) {
-        if (!selectedTopic || !subject.topics.includes(selectedTopic)) {
+        if (!selectedTopic || !subject.topics.find(t => t.title === selectedTopic)) {
            handleSelectTopic(subject.topics[0]);
         }
       }
@@ -108,17 +118,58 @@ export default function StudyTab() {
 
   const messages = selectedTopic ? (chatHistory[selectedTopic] || []) : [];
 
-  const handleSelectTopic = (topic: string) => {
-    setSelectedTopic(topic);
-    if (!chatHistory[topic] || chatHistory[topic].length === 0) {
-      clearMessages(topic);
-      addMessage(topic, {
+  const handleSelectTopic = (topic: any) => {
+    const topicTitle = typeof topic === 'string' ? topic : topic.title;
+    setSelectedTopic(topicTitle);
+    if (!chatHistory[topicTitle] || chatHistory[topicTitle].length === 0) {
+      clearMessages(topicTitle);
+      addMessage(topicTitle, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `Hi! I'm your tutor. Let's master **${topic}**. What would you like to know?`,
+        content: `Hi! I'm your tutor. Let's master **${topicTitle}**. What would you like to know?`,
         timestamp: Date.now()
       });
     }
+  };
+
+  const handleVoice = async () => {
+    if (voiceState !== 'idle' || !selectedTopic) return;
+
+    setVoiceState('listening');
+    const transcript = await startListening();
+
+    if (!transcript) {
+      setVoiceState('idle');
+      return;
+    }
+
+    addMessage(selectedTopic, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: `🎤 ${transcript}`,
+      timestamp: Date.now()
+    });
+
+    setVoiceState('processing');
+
+    const response = await handleVoiceQuery({
+      transcript,
+      subjectId: currentSubject.id
+    });
+
+    if (response) {
+      setVoiceState('speaking');
+      addMessage(selectedTopic, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response,
+        timestamp: Date.now()
+      });
+    }
+
+    setTimeout(() => {
+      setVoiceState('idle');
+    }, 4000);
   };
 
   const handleSend = async () => {
@@ -131,7 +182,7 @@ export default function StudyTab() {
       timestamp: Date.now()
     };
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync('light');
 
     addMessage(selectedTopic, userMsg);
     setInput('');
@@ -167,9 +218,12 @@ export default function StudyTab() {
       content: m.content
     }));
 
-    let sysPrompt = explainPrompt(currentSubject.name, selectedTopic);
-    if (mode === 'Quiz Me') sysPrompt = quizPrompt(currentSubject.name, selectedTopic);
-    if (mode === 'Summary') sysPrompt = summaryPrompt(currentSubject.name, selectedTopic);
+    const sysPrompt = buildSystemPrompt({
+      mode: learningMode,
+      subject: currentSubject.name,
+      topic: selectedTopic,
+      isQuiz: mode === 'Quiz Me'
+    });
 
     const res = await askTutor(sysPrompt, contextMessages);
 
@@ -221,8 +275,10 @@ export default function StudyTab() {
           <View className="flex-row mt-3">
             <TouchableOpacity 
               onPress={() => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                markTopicDone(selectedSubjectId, selectedTopic);
+                if (currentTopicObj) {
+                  Haptics.notificationAsync('success');
+                  markTopicDone(selectedSubjectId, currentTopicObj.id, currentTopicObj.title);
+                }
               }}
               className="px-4 py-2 bg-[#22c55e]/10 rounded-full border border-[#22c55e]/30 flex-row items-center ml-2"
               activeOpacity={0.7}
@@ -239,7 +295,7 @@ export default function StudyTab() {
 
 
   const displayedTopics = isConnected === false 
-    ? currentSubject.topics.filter(t => offlineCachedTopics.includes(t))
+    ? currentSubject.topics.filter(t => offlineCachedTopics.includes(t.title))
     : currentSubject.topics;
 
   return (
@@ -260,17 +316,17 @@ export default function StudyTab() {
           horizontal
           showsHorizontalScrollIndicator={false}
           data={displayedTopics}
-          keyExtractor={(item) => item}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}
           renderItem={({ item }) => {
-            const isSelected = item === selectedTopic;
+            const isSelected = item.title === selectedTopic;
             return (
               <TouchableOpacity
                 onPress={() => handleSelectTopic(item)}
                 className={`mr-3 px-4 py-2 rounded-full border ${isSelected ? 'bg-[#4f7cff] border-[#4f7cff]' : 'bg-[#161920] border-[#2a2f3d]'}`}
               >
                 <Text className={`font-semibold font-dmsans ${isSelected ? 'text-white' : 'text-[#8a8fa3]'}`}>
-                  {item}
+                  {item.title}
                 </Text>
               </TouchableOpacity>
             );
@@ -329,8 +385,18 @@ export default function StudyTab() {
           </View>
 
           <View className="flex-row items-center bg-[#161920] rounded-3xl p-1 border border-[#2a2f3d]">
+            <TouchableOpacity 
+              className={`w-10 h-10 rounded-full items-center justify-center ml-1 ${voiceState !== 'idle' ? 'bg-[#f59e0b]' : 'bg-[#2a2f3d]'}`}
+              onPress={handleVoice}
+            >
+              <Ionicons 
+                name={voiceState === 'listening' ? "mic" : voiceState === 'processing' ? "hourglass" : voiceState === 'speaking' ? "volume-high" : "mic-outline"} 
+                size={20} 
+                color="white" 
+              />
+            </TouchableOpacity>
             <TextInput
-              className="flex-1 text-white text-base font-dmsans px-4 py-3 min-h-[48px] max-h-[120px]"
+              className="flex-1 text-white text-base font-dmsans px-3 py-3 min-h-[48px] max-h-[120px]"
               placeholder="Ask a question..."
               placeholderTextColor="#8a8fa3"
               multiline

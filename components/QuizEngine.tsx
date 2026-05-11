@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { generateQuizQuestion } from "../lib/api";
-import { useProgressStore } from "../store/progressStore";
-import * as Haptics from 'expo-haptics';
+import { getQuizBatch, preloadNextBatch } from "../lib/quizProvider";
+import { getDifficultyLevel } from "../lib/difficulty";
+import { adjustDifficulty, getBatchSize } from "../lib/sessionIntelligence";
+import { generateExplanation } from "../lib/ai";
+import { updateStreak } from "../lib/habits";
+import { Card, CardTitle, CardDescription } from "./ui/Card";
+import * as Haptics from '../lib/haptics';
+import { recordProgress } from '../lib/progress';
+import { awardXP } from '../lib/xp';
+import { useAuthStore } from '../store/authStore';
+import { useRoadmapStore } from '../store/roadmapStore';
 
 interface Question {
   question: string;
@@ -16,8 +24,12 @@ interface QuizEngineProps {
   subjectName: string;
   topicName: string;
   totalQuestions?: number;
-  onFinish?: (score: number) => void;
+  onFinish?: (score: number, total: number) => void;
+  onContinue?: () => void;
   containerStyle?: ViewStyle;
+  userId?: string;
+  subjectId?: string;
+  topicId?: string;
 }
 
 export const QuizEngine: React.FC<QuizEngineProps> = ({ 
@@ -25,21 +37,54 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
   topicName, 
   totalQuestions = 5,
   onFinish,
-  containerStyle 
+  onContinue,
+  containerStyle,
+  userId: propUserId,
+  subjectId: propSubjectId,
+  topicId: propTopicId
 }) => {
-  const { addQuizScore } = useProgressStore();
+  const { user } = useAuthStore();
+  const { subjectId: storeSubjectId, topicId: storeTopicId } = useRoadmapStore();
   
+  const userId = propUserId || user?.id;
+  const subjectId = propSubjectId || storeSubjectId;
+  const topicId = propTopicId || storeTopicId;
   const [questionIndex, setQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
+  const [questionsBatch, setQuestionsBatch] = useState<Question[]>([]);
   const [questionData, setQuestionData] = useState<Question | null>(null);
-  const [nextQuestionData, setNextQuestionData] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
-  const [preFetching, setPreFetching] = useState(false);
   const [error, setError] = useState('');
   
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
+
+  const [masteryLevel, setMasteryLevel] = useState(50); // Default to intermediate
+  const [correctStreak, setCorrectStreak] = useState(0);
+  const [wrongStreak, setWrongStreak] = useState(0);
+  const [currentDifficulty, setCurrentDifficulty] = useState<string>('');
+  const [interventionText, setInterventionText] = useState<string>('');
+
+  useEffect(() => {
+    if (userId) {
+      updateStreak(userId);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!currentDifficulty) return;
+    const newDifficulty = adjustDifficulty({
+      correctStreak,
+      wrongStreak,
+      currentDifficulty
+    });
+
+    if (newDifficulty !== currentDifficulty) {
+      console.log('[SESSION ADAPT] Shifting difficulty to', newDifficulty);
+      setCurrentDifficulty(newDifficulty);
+    }
+  }, [correctStreak, wrongStreak]);
 
   useEffect(() => {
     startQuiz();
@@ -48,90 +93,216 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
   const startQuiz = async () => {
     setLoading(true);
     setError('');
-    const res = await generateQuizQuestion(subjectName, topicName);
-    if (res.success) {
-      setQuestionData(res.data);
-      preFetchNext();
-    } else {
-      setError(res.error ?? 'Failed to start quiz.');
+    setCorrectStreak(0);
+    setWrongStreak(0);
+    setInterventionText('');
+    
+    try {
+      const difficulty = currentDifficulty || getDifficultyLevel(masteryLevel);
+      if (!currentDifficulty) {
+        setCurrentDifficulty(difficulty);
+      }
+      
+      const batchSize = getBatchSize(0);
+      const batch = await getQuizBatch({
+        topicId: topicId!,
+        topicTitle: topicName,
+        subjectId: subjectId!,
+        difficulty,
+        count: batchSize
+      });
+      
+      if (batch && batch.length > 0) {
+        const mappedBatch = batch.map(q => ({
+          question: q.question,
+          options: q.options,
+          correct: q.correctIndex,
+          explanation: q.explanation
+        }));
+        
+        setQuestionsBatch(mappedBatch);
+        setQuestionData(mappedBatch[0]);
+        setQuestionIndex(0);
+        setScore(0);
+        
+        preloadNextBatch({
+          topicId: topicId!,
+          topicTitle: topicName,
+          subjectId: subjectId!,
+          difficulty,
+          count: batchSize
+        });
+      } else {
+        setError('Failed to start quiz. Please try again.');
+      }
+    } catch (err) {
+      setError('Failed to start quiz. Please try again.');
     }
+    
     setLoading(false);
   };
 
-  const preFetchNext = async () => {
-    if (preFetching || questionIndex + 1 >= totalQuestions) return;
-    setPreFetching(true);
-    const res = await generateQuizQuestion(subjectName, topicName);
-    if (res.success) {
-      setNextQuestionData(res.data);
-    }
-    setPreFetching(false);
-  };
-
-  const handleSelectOption = (index: number) => {
+  const handleSelectOption = async (index: number) => {
     if (showExplanation || !questionData) return;
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impactAsync('medium');
     setSelectedOption(index);
     setShowExplanation(true);
     
-    if (index === questionData.correct) {
+    const isCorrect = index === questionData.correct;
+    
+    if (isCorrect) {
       setScore(prev => prev + 1);
+      setCorrectStreak(prev => prev + 1);
+      setWrongStreak(0);
+    } else {
+      const newWrongStreak = wrongStreak + 1;
+      setWrongStreak(newWrongStreak);
+      setCorrectStreak(0);
+      
+      if (newWrongStreak >= 3 && !interventionText) {
+        console.log('[INTERVENTION] Trigger explanation');
+        generateExplanation({
+          topicTitle: topicName,
+          masteryLevel,
+          subjectId: subjectId!
+        }).then(res => {
+          if (res) {
+            setInterventionText(res);
+          }
+        }).catch(() => {});
+      }
+      
+      if (newWrongStreak >= 5) {
+        console.log('[FATIGUE] Suggest break');
+      }
+    }
+
+    // Task 1.1 & 1.2: Record progress and award XP in real-time
+    if (userId && topicId && subjectId) {
+      void recordProgress({
+        userId,
+        topicId,
+        subjectId,
+        isCorrect
+      });
+
+      if (isCorrect) {
+        void awardXP(userId, 10);
+      }
     }
   };
 
-  const handleNextQuestion = () => {
+  const handleNextQuestion = async () => {
     if (questionIndex + 1 >= totalQuestions) {
-       addQuizScore(score, totalQuestions);
        setIsFinished(true);
-       if (onFinish) onFinish(score);
+       if (onFinish) {
+         onFinish(score, totalQuestions);
+       }
        return;
     }
 
-    if (nextQuestionData) {
-      setQuestionData(nextQuestionData);
-      setNextQuestionData(null);
+    if (questionIndex + 1 < questionsBatch.length) {
+      setQuestionData(questionsBatch[questionIndex + 1]);
       setQuestionIndex(prev => prev + 1);
       setSelectedOption(null);
       setShowExplanation(false);
-      preFetchNext();
+      setInterventionText('');
     } else {
       setLoading(true);
-      startQuiz();
+      
+      const batchSize = getBatchSize(wrongStreak);
+      const batch = await getQuizBatch({
+        topicId: topicId!,
+        topicTitle: topicName,
+        subjectId: subjectId!,
+        difficulty: currentDifficulty,
+        count: batchSize
+      });
+      
+      if (batch && batch.length > 0) {
+        const mappedBatch = batch.map(q => ({
+          question: q.question,
+          options: q.options,
+          correct: q.correctIndex,
+          explanation: q.explanation
+        }));
+        
+        setQuestionsBatch(prev => [...prev, ...mappedBatch]);
+        setQuestionData(mappedBatch[0]);
+        setQuestionIndex(prev => prev + 1);
+        setSelectedOption(null);
+        setShowExplanation(false);
+        setInterventionText('');
+        
+        preloadNextBatch({
+          topicId: topicId!,
+          topicTitle: topicName,
+          subjectId: subjectId!,
+          difficulty: currentDifficulty,
+          count: batchSize
+        });
+      } else {
+        setIsFinished(true);
+        if (onFinish) {
+          onFinish(score, totalQuestions);
+        }
+      }
+      
+      setLoading(false);
     }
   };
 
   const handleTryAgain = () => {
-    setQuestionIndex(0);
-    setScore(0);
     setIsFinished(false);
     startQuiz();
   };
 
   if (isFinished) {
     const percentage = Math.round((score / totalQuestions) * 100);
-    const feedback = percentage >= 80 ? "Outstanding!" : percentage >= 50 ? "Good Job!" : "Keep Practicing!";
+    const feedback = percentage >= 80 ? "Excellent mastery" : percentage >= 50 ? "Good progress" : "Keep practicing";
     const accentColor = percentage >= 80 ? "#22c55e" : percentage >= 50 ? "#f59e0b" : "#ef4444";
+    const earnedXP = percentage >= 80 ? 20 : percentage >= 50 ? 10 : 5;
 
     return (
       <View className="flex-1 items-center justify-center" style={containerStyle}>
-        <View className="bg-[#161920] w-full rounded-[40px] p-8 border border-[#2a2f3d] items-center shadow-2xl overflow-hidden">
+        <Card elevated className="w-full p-8 items-center overflow-hidden relative">
           <View className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ backgroundColor: accentColor }} />
-          <View className="w-24 h-24 bg-[#0d0f12] rounded-full items-center justify-center mb-6 border-4" style={{ borderColor: accentColor }}>
+          <View className="w-24 h-24 bg-surface-bg rounded-full items-center justify-center mb-6 border-4" style={{ borderColor: accentColor }}>
              <Text className="text-white text-3xl font-bold font-syne">{percentage}%</Text>
           </View>
-          <Text className="text-white text-4xl font-bold font-syne mb-2 text-center">{feedback}</Text>
-          <Text className="text-[#8a8fa3] text-lg font-dmsans mb-8 text-center">
+          <CardTitle className="text-4xl mb-2 text-center">{feedback}</CardTitle>
+          <CardDescription className="text-lg mb-4 text-center">
             You answered {score} out of {totalQuestions} correctly.
-          </Text>
-          <TouchableOpacity 
-            className="bg-[#4f7cff] w-full py-5 rounded-2xl flex-row items-center justify-center shadow-lg shadow-[#4f7cff]/30"
-            onPress={handleTryAgain}
-          >
-            <Ionicons name="refresh" size={20} color="#ffffff" />
-            <Text className="text-white font-bold font-syne text-lg ml-2">Try Again</Text>
-          </TouchableOpacity>
-        </View>
+          </CardDescription>
+
+          {/* XP Badge */}
+          <View className="bg-brand-500/10 px-6 py-3 rounded-2xl border border-brand-500/30 mb-8 flex-row items-center">
+             <Ionicons name="sparkles" size={20} color="#4f7cff" />
+             <Text className="text-white font-bold font-syne text-xl ml-2">
+               +{earnedXP} XP
+             </Text>
+          </View>
+
+          <View className="w-full flex-row">
+            <TouchableOpacity 
+              className="bg-surface-elevated flex-1 py-5 rounded-2xl flex-row items-center justify-center mr-3"
+              onPress={handleTryAgain}
+            >
+              <Ionicons name="refresh" size={18} color="#8a8fa3" />
+              <Text className="text-text-muted font-bold font-syne text-lg ml-2">Retry</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              className="bg-brand-500 flex-2 py-5 rounded-3xl flex-row items-center justify-center shadow-lg shadow-brand-500/30"
+              style={{ flex: 2 }}
+              onPress={() => onContinue ? onContinue() : handleTryAgain()}
+            >
+              <Text className="text-white font-bold font-syne text-lg mr-2">Continue</Text>
+              <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </Card>
       </View>
     );
   }
@@ -206,15 +377,33 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
           </View>
 
           {showExplanation && (
-            <View className="bg-[#161920] p-5 rounded-2xl border border-[#2a2f3d] mb-8">
+            <Card className="mb-8">
               <View className="flex-row items-center mb-2">
                 <Ionicons name="information-circle" size={20} color="#4f7cff" />
-                <Text className="text-white font-bold font-syne text-lg ml-2">Explanation</Text>
+                <CardTitle className="text-lg ml-2">Explanation</CardTitle>
               </View>
-              <Text className="text-[#8a8fa3] text-base font-dmsans leading-6">
+              <CardDescription className="text-base leading-6">
                 {questionData.explanation}
-              </Text>
-            </View>
+              </CardDescription>
+            </Card>
+          )}
+
+          {showExplanation && interventionText && (
+            <Card className="mb-8 border-[#f59e0b] bg-[#f59e0b]/5">
+              <View className="flex-row items-center mb-2">
+                <Ionicons name="bulb-outline" size={20} color="#f59e0b" />
+                <CardTitle className="text-lg ml-2 text-[#f59e0b]">Tutor Intervention</CardTitle>
+              </View>
+              <CardDescription className="text-base leading-6 text-white/90">
+                {interventionText}
+              </CardDescription>
+            </Card>
+          )}
+
+          {showExplanation && wrongStreak >= 5 && (
+            <Text className="text-[#f59e0b] text-center font-bold mb-4 font-dmsans">
+              It seems you are struggling. Taking a short break might help!
+            </Text>
           )}
 
           {showExplanation && (

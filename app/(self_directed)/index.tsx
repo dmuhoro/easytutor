@@ -1,14 +1,22 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { GoalInput } from "../../components/GoalInput";
 import { useRoadmapStore } from "../../store/roadmapStore";
 import { Ionicons } from "@expo/vector-icons";
+import { uploadDocument } from "../../lib/documents";
+import { extractText } from "../../lib/extraction";
+import { chunkText } from "../../lib/chunking";
+import { storeChunks } from "../../lib/knowledge";
 
 export default function SelfDirectedMission() {
   const router = useRouter();
-  const { roadmaps } = useRoadmapStore();
+  const { roadmaps, fetchSavedRoadmaps } = useRoadmapStore();
+
+  useEffect(() => {
+    fetchSavedRoadmaps();
+  }, []);
 
   const handleStartMission = (goal: string) => {
     router.push({
@@ -17,11 +25,7 @@ export default function SelfDirectedMission() {
     });
   };
 
-  const selfDirectedRoadmaps = roadmaps.filter(r => {
-    // Basic heuristic: if it's not a known subject, it might be self-directed
-    // But in a real app, we'd flag the roadmap's origin mode.
-    return true; // For now, just show all to show progress
-  });
+  const selfDirectedRoadmaps = roadmaps.filter(r => r.learningMode === 'self_directed');
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
@@ -35,6 +39,40 @@ export default function SelfDirectedMission() {
         </View>
 
         <GoalInput onStart={handleStartMission} containerStyle={{ marginBottom: 40 }} />
+
+        <View className="mb-10">
+          <Text className="text-white text-2xl font-bold font-syne mb-6">Knowledge Workspace</Text>
+          
+          <TouchableOpacity
+            className="bg-[#161920] p-5 rounded-[20px] border border-[#2a2f3d] mb-3 flex-row items-center"
+            onPress={async () => {
+              const res = await uploadDocument({ name: 'mock_book.pdf' });
+              if (res.success) {
+                const text = await extractText({ name: 'mock_book.pdf' });
+                const chunks = chunkText(text);
+                // mock document ID for now
+                await storeChunks({ documentId: '00000000-0000-0000-0000-000000000000', chunks });
+              }
+            }}
+          >
+            <Ionicons name="cloud-upload-outline" size={24} color="#3b82f6" />
+            <Text className="text-white font-syne text-lg ml-4">Upload Book</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="bg-[#161920] p-5 rounded-[20px] border border-[#2a2f3d] mb-3 flex-row items-center"
+          >
+            <Ionicons name="chatbubbles-outline" size={24} color="#a855f7" />
+            <Text className="text-white font-syne text-lg ml-4">Ask AI Tutor</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="bg-[#161920] p-5 rounded-[20px] border border-[#2a2f3d] mb-3 flex-row items-center"
+          >
+            <Ionicons name="book-outline" size={24} color="#eab308" />
+            <Text className="text-white font-syne text-lg ml-4">Study Uploaded Material</Text>
+          </TouchableOpacity>
+        </View>
 
         {selfDirectedRoadmaps.length > 0 && (
           <View className="mb-20">

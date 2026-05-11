@@ -1,15 +1,22 @@
-import { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts, Syne_700Bold } from '@expo-google-fonts/syne';
 import { DMSans_400Regular, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
-import { supabase } from '../lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
+import { isSupabaseAvailable } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useProgressStore } from '../store/progressStore';
-import { useRoadmapStore } from '../store/roadmapStore';
-import { useOnboardingStore } from '../store/onboardingStore';
+import { LearningMode, useRoadmapStore } from '../store/roadmapStore';
+import { trackEvent } from '../lib/analytics';
+import { GlobalErrorBoundary } from '../components/GlobalErrorBoundary';
+import { initializeKnowledge, syncToRemote } from '../data/knowledgeStore';
+import { retryFailedSyncs } from '../services/syncEngine';
+import { logEvent, setLogContext } from '../lib/logEvent';
+import { normalizeProfile } from '../lib/normalize';
+import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from '../lib/supabaseOps';
 import '../global.css';
 
 // Keep the splash screen visible while we fetch resources
@@ -23,6 +30,9 @@ export default function RootLayout() {
   });
 
   const { session, setSession, isLoading: authLoading } = useAuthStore();
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(!isSupabaseAvailable());
   const { 
     onboardingComplete, 
     learningMode, 
@@ -30,62 +40,167 @@ export default function RootLayout() {
     setLearningMode,
     setOnboardingComplete 
   } = useRoadmapStore();
-  const { setUserId: setProgressUserId } = useProgressStore();
+  const { setUserId: setProgressUserId, awardLoginXP } = useProgressStore();
   const segments = useSegments();
   const router = useRouter();
+  const hasTrackedSignup = useRef(false);
+
+  const isAppReady = fontsLoaded && !authLoading && !isProfileLoading;
+  const isKnownLearningMode = (mode: string): mode is LearningMode =>
+    mode === 'high_school' || mode === 'university' || mode === 'self_directed';
+
+  const retry = async <T,>(fn: () => Promise<T>, retries = 3): Promise<T> => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        console.warn(`[PROFILE] Retry ${i + 1} failed`, err);
+      }
+    }
+    throw new Error('Max retries reached');
+  };
 
   const syncProfile = async (userId: string) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('learning_mode, onboarding_complete')
-      .eq('id', userId)
-      .single();
-    
-    if (data) {
-      if (data.learning_mode) setLearningMode(data.learning_mode as any);
-      if (data.onboarding_complete !== undefined) setOnboardingComplete(data.onboarding_complete);
+    setIsProfileLoading(true);
+    setIsOfflineMode(false);
+    try {
+      const client = getSupabaseClient();
+      const authUser = await getAuthenticatedUser();
+      console.log('[PROFILE] Sync start:', userId);
+      await trackEvent('profile_sync_started', { user_id: authUser.id });
+      setLogContext({ userId: authUser.id });
+
+      const profile = await retry(async () => {
+        const { data, error } = await client
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        if (error) {
+          logSupabaseError('profiles', 'select', error);
+          console.error('[PROFILE FETCH ERROR]', error);
+          throw error;
+        }
+
+        if (!data) {
+          console.warn('[PROFILE] Missing. Creating...');
+          const { error: insertError } = await client
+            .from('profiles')
+            .insert({
+              id: authUser.id,
+              email: authUser.email ?? '',
+              learning_mode: null,
+              onboarding_complete: false,
+            });
+
+          if (insertError) {
+            logSupabaseError('profiles', 'insert', insertError);
+            console.error('[PROFILE CREATE ERROR]', insertError);
+            throw insertError;
+          }
+
+          console.log('[PROFILE] Created successfully');
+          // Re-fetch on next sync pass; caller should fall back to defaults now.
+          return null;
+        }
+
+        return data;
+      });
+
+      const safeProfile = normalizeProfile(profile ?? {});
+      if (isKnownLearningMode(safeProfile.learning_mode)) {
+        setLearningMode(safeProfile.learning_mode);
+      }
+      setOnboardingComplete(Boolean(safeProfile.onboarding_complete));
+      setProfileError(null);
+
+      await trackEvent('profile_sync_success', { user_id: userId });
+      console.log('[PROFILE] Sync success');
+      return safeProfile;
+    } catch (err) {
+      console.error('[PROFILE FATAL]', err);
+      await trackEvent('profile_sync_failed', {
+        user_id: userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      setProfileError('Profile sync failed. Using offline defaults.');
+      return null;
+    } finally {
+      setIsProfileLoading(false);
     }
   };
 
   useEffect(() => {
-    // 1. Handle Initial Session
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        setSession(session || null);
-        setProgressUserId(session?.user?.id ?? null);
-        setRoadmapUserId(session?.user?.id ?? null);
-        if (session?.user?.id) syncProfile(session.user.id);
-      })
-      .catch(() => {
-        setSession(null);
+    // Initialize knowledge base (always works offline)
+    initializeKnowledge();
+    void logEvent('INFO', 'app_start', { offlineMode: !isSupabaseAvailable() });
+
+    void (async () => {
+      try {
+        await retryFailedSyncs();
+        await syncToRemote();
+      } catch (err) {
+        await logEvent('WARN', 'startup_sync_failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+
+    try {
+      const client = getSupabaseClient();
+      const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
+        console.log('[AUTH]', event);
+        setIsProfileLoading(true);
+        
+        if (session?.user?.id) {
+          setSession(session);
+          setProgressUserId(session.user.id);
+          setRoadmapUserId(session.user.id);
+          await syncProfile(session.user.id);
+          
+          // Track signup event only once upon initial sign-in/session creation
+          if (event === 'SIGNED_IN' && session?.user?.id && !hasTrackedSignup.current) {
+            hasTrackedSignup.current = true;
+            try {
+              await trackEvent('user_signed_up', {
+                user_id: session.user.id,
+                learning_mode: useRoadmapStore.getState().learningMode || 'unknown'
+              });
+            } catch (err) {
+              console.error('[ANALYTICS ERROR]', err);
+            }
+          }
+
+          await awardLoginXP();
+        } else {
+          hasTrackedSignup.current = false;
+          setSession(null);
+          setProgressUserId(null);
+          setRoadmapUserId(null);
+          setIsProfileLoading(false);
+        }
       });
 
-    // 2. Listen for Auth Changes (Sign In/Out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session || null);
-      setProgressUserId(session?.user?.id ?? null);
-      setRoadmapUserId(session?.user?.id ?? null);
-      if (session?.user?.id) syncProfile(session.user.id);
-    });
-
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    } catch (err) {
+      logSupabaseError('auth', 'select', err);
+      setIsProfileLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (authLoading || !fontsLoaded) return;
+    if (!isAppReady) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboarding = segments[0] === 'onboarding';
-    const inHS = segments[0] === '(high_school)';
-    const inUniv = segments[0] === '(university)';
-    const inSelf = segments[0] === '(self_directed)';
 
     if (!session) {
       if (!inAuthGroup) router.replace('/(auth)/login');
     } else if (!onboardingComplete) {
       if (!inOnboarding) router.replace('/onboarding');
     } else {
-      // Logic for Portal Redirection (Section 4)
+      // Logic for Portal Redirection
       if (inAuthGroup || inOnboarding) {
         if (learningMode === 'high_school') router.replace('/(high_school)');
         else if (learningMode === 'university') router.replace('/(university)');
@@ -93,21 +208,51 @@ export default function RootLayout() {
         else router.replace('/(tabs)'); // Fallback
       }
     }
-  }, [session, onboardingComplete, learningMode, authLoading, fontsLoaded, segments]);
+  }, [isAppReady, session, onboardingComplete, learningMode, segments]);
 
   useEffect(() => {
-    if ((fontsLoaded || fontError) && !authLoading) {
+    if (isAppReady || fontError) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError, authLoading]);
+  }, [isAppReady, fontError]);
 
-  if (!fontsLoaded && !fontError) {
-    return null;
+  if (!isAppReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0d0f12', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#4f7cff', fontSize: 24, fontWeight: 'bold' }}>EasyTutor</Text>
+      </View>
+    );
   }
 
   return (
-    <>
+    <GlobalErrorBoundary>
       <StatusBar style="light" />
+      {/* Offline mode banner */}
+      {isOfflineMode && (
+        <View className="absolute top-0 left-0 right-0 z-50 px-5 pt-14">
+          <View className="bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-2xl px-4 py-3 flex-row items-center">
+            <Ionicons name="cloud-offline" size={14} color="#f59e0b" />
+            <Text className="text-[#f59e0b] font-bold font-syne text-[10px] uppercase tracking-widest flex-1 ml-2">
+              Offline Mode - Data saved locally
+            </Text>
+          </View>
+        </View>
+      )}
+      {session?.user?.id && profileError && (
+        <View className="absolute top-0 left-0 right-0 z-50 px-5 pt-14">
+          <View className="bg-[#ef4444]/10 border border-[#ef4444]/20 rounded-2xl px-4 py-3 flex-row items-center justify-between">
+            <Text className="text-[#ef4444] font-bold font-syne text-[10px] uppercase tracking-widest flex-1 pr-3">
+              {profileError}
+            </Text>
+            <TouchableOpacity
+              onPress={() => syncProfile(session.user.id)}
+              className="bg-[#ef4444] px-3 py-2 rounded-xl"
+            >
+              <Text className="text-white font-bold font-syne text-xs">Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
@@ -118,7 +263,6 @@ export default function RootLayout() {
         <Stack.Screen name="explore" options={{ animation: 'fade' }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
       </Stack>
-    </>
+    </GlobalErrorBoundary>
   );
 }
-

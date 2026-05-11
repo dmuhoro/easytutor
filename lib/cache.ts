@@ -48,7 +48,7 @@ export const preloadQuizCache = async () => {
     for (let i = 0; i < 3; i++) {
       const topic = subject.topics[0];
       if (!topic) continue;
-      const res = await generateQuizQuestion(subject.name, topic);
+      const res = await generateQuizQuestion(subject.name, topic.title);
       if (res.success && res.data) {
         questions.push(res.data);
       }
@@ -57,4 +57,25 @@ export const preloadQuizCache = async () => {
   }
   await AsyncStorage.setItem('quiz_cache_initialized', 'true');
   console.log('Quiz cache preloaded!');
+};
+
+const memoryCache = new Map();
+const MAX_CACHE_ITEMS = 50;
+
+export const getMemoryCachedResponse = (
+  key: string
+) => {
+  return memoryCache.get(key);
+};
+
+export const setMemoryCachedResponse = (
+  key: string,
+  value: any
+) => {
+  if (memoryCache.size >= MAX_CACHE_ITEMS) {
+    const firstKey = memoryCache.keys().next().value;
+    memoryCache.delete(firstKey);
+    console.log(`[CACHE] Evicted item to maintain max ${MAX_CACHE_ITEMS}`);
+  }
+  memoryCache.set(key, value);
 };

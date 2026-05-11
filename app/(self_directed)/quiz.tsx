@@ -4,10 +4,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { QuizEngine } from "../../components/QuizEngine";
 import { Ionicons } from "@expo/vector-icons";
+import { useProgressStore } from "../../store/progressStore";
 
 export default function SelfDirectedQuiz() {
   const router = useRouter();
   const { topic } = useLocalSearchParams();
+  const { addQuizScore } = useProgressStore();
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
@@ -28,7 +30,11 @@ export default function SelfDirectedQuiz() {
           subjectName="Self-Directed Study" 
           topicName={typeof topic === 'string' ? topic : 'General Interest'} 
           totalQuestions={5} 
-          onFinish={() => {}}
+          onFinish={async (score, total) => {
+            await addQuizScore(score, total, typeof topic === 'string' ? topic : 'General Interest', 'self_directed');
+          }}
+          onContinue={() => router.back()}
+          subjectId="self_directed"
         />
       </View>
     </SafeAreaView>

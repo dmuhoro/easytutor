@@ -1,15 +1,21 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRoadmapStore, CustomRoadmap, RoadmapDay } from "../../store/roadmapStore";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../lib/haptics';
 
 export default function ViewRoadmap() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { roadmaps, checkedTasks, toggleTask, removeRoadmap } = useRoadmapStore();
+  const { roadmaps, checkedTasks, toggleTask, removeRoadmap, getRoadmapProgress, markRoadmapOpened } = useRoadmapStore();
+
+  useEffect(() => {
+    if (id) {
+      markRoadmapOpened(id);
+    }
+  }, [id]);
 
   const roadmap = roadmaps.find(r => r.id === id);
 
@@ -40,12 +46,10 @@ export default function ViewRoadmap() {
   };
 
   const currentProgress = checkedTasks[roadmap.id] || {};
-  const totalTasks = roadmap.days.reduce((acc, day) => acc + day.tasks.length, 0);
-  const completedTasks = roadmap.days.reduce((acc, day) => {
-    return acc + (currentProgress[day.day] || []).length;
-  }, 0);
+  const progressPercent = getRoadmapProgress(roadmap.id);
   
-  const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const totalTasks = roadmap.days.reduce((acc, day) => acc + day.tasks.length, 0);
+  const completedTasks = Object.values(currentProgress).reduce((acc, dayTasks) => acc + dayTasks.length, 0);
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
@@ -103,7 +107,7 @@ export default function ViewRoadmap() {
                   <TouchableOpacity
                     key={idx}
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      Haptics.impactAsync('light');
                       toggleTask(roadmap.id, day.day, task);
                     }}
                     activeOpacity={0.7}

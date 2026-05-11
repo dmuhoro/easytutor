@@ -2,30 +2,52 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type ThemeType = 'light' | 'dark' | 'system';
+export type AIMode = 'hosted' | 'local' | 'custom';
 
 interface SettingsState {
-  theme: ThemeType;
-  setTheme: (theme: ThemeType) => void;
+  aiMode: AIMode;
+  ollamaUrl: string;
+  ollamaModel: string;
+  customApiKey: string;
+  customProvider: 'groq' | 'openai';
+  theme: 'dark' | 'light' | 'system';
+  
+  setAIMode: (mode: AIMode) => void;
+  setOllamaUrl: (url: string) => void;
+  setOllamaModel: (model: string) => void;
+  setCustomApiKey: (key: string) => void;
+  setCustomProvider: (provider: 'groq' | 'openai') => void;
+  setTheme: (theme: 'dark' | 'light' | 'system') => void;
+  
+  // Legacy support for older components
   useLocalLLM: boolean;
   setUseLocalLLM: (val: boolean) => void;
-  ollamaUrl: string;
-  setOllamaUrl: (val: string) => void;
-  ollamaModel: string;
-  setOllamaModel: (val: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
-      theme: 'system',
-      setTheme: (theme) => set({ theme }),
+    (set, get) => ({
+      aiMode: 'hosted',
+      ollamaUrl: 'http://localhost:11434/v1',
+      ollamaModel: 'llama3',
+      customApiKey: '',
+      customProvider: 'groq',
+      theme: 'dark',
+      
+      // Derived legacy state
       useLocalLLM: false,
-      setUseLocalLLM: (val) => set({ useLocalLLM: val }),
-      ollamaUrl: 'http://localhost:11434',
-      setOllamaUrl: (val) => set({ ollamaUrl: val }),
-      ollamaModel: 'llama3.2',
-      setOllamaModel: (val) => set({ ollamaModel: val }),
+      
+      setAIMode: (aiMode) => set({ aiMode, useLocalLLM: aiMode === 'local' }),
+      setOllamaUrl: (ollamaUrl) => set({ ollamaUrl }),
+      setOllamaModel: (ollamaModel) => set({ ollamaModel }),
+      setCustomApiKey: (customApiKey) => set({ customApiKey }),
+      setCustomProvider: (customProvider) => set({ customProvider }),
+      setTheme: (theme) => set({ theme }),
+      
+      setUseLocalLLM: (val) => set({ 
+        useLocalLLM: val, 
+        aiMode: val ? 'local' : (get().aiMode === 'local' ? 'hosted' : get().aiMode) 
+      }),
     }),
     {
       name: 'easytutor-settings-v2',

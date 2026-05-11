@@ -6,8 +6,8 @@ import { useProgressStore } from "../../store/progressStore";
 import { useRoadmapStore, LearningMode } from "../../store/roadmapStore";
 import { useAuthStore } from "../../store/authStore";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../../lib/supabase";
 import { useRouter } from "expo-router";
+import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from "../../lib/supabaseOps";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -39,15 +39,25 @@ export default function SettingsScreen() {
 
   const handleSwitchMode = async (newMode: LearningMode) => {
     if (newMode === learningMode) return;
+    if (!user?.id) {
+      Alert.alert("Error", "You must be signed in to switch learning mode.");
+      return;
+    }
     
     setUpdatingMode(true);
     try {
-      const { error } = await supabase
+      const client = getSupabaseClient();
+      const authUser = await getAuthenticatedUser();
+
+      const { error } = await client
         .from('profiles')
         .update({ learning_mode: newMode })
-        .eq('id', user?.id);
+        .eq('id', authUser.id);
 
-      if (error) throw error;
+      if (error) {
+        logSupabaseError('profiles', 'update', error);
+        throw error;
+      }
 
       setLearningMode(newMode);
       
@@ -57,6 +67,7 @@ export default function SettingsScreen() {
       else if (newMode === 'self_directed') router.replace('/(self_directed)');
       
     } catch (err: any) {
+      console.error('[ERROR] [PROFILE] learning mode switch failed', err);
       Alert.alert("Error", "Could not switch learning mode. Please check your connection.");
     } finally {
       setUpdatingMode(false);
@@ -82,32 +93,52 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView className="flex-1 px-5 pt-8">
-        <Text className="text-[#8a8fa3] font-bold uppercase text-xs mb-4 ml-2 tracking-widest">Active Portal</Text>
-        <View className="bg-[#161920] rounded-[32px] p-2 mb-10 border border-[#2a2f3d]">
-          {(['high_school', 'university', 'self_directed'] as LearningMode[]).map((mode) => {
-            const isSelected = learningMode === mode;
-            const label = mode === 'high_school' ? 'High School' : mode === 'university' ? 'University' : 'Self-Directed';
-            const icon = mode === 'high_school' ? 'school' : mode === 'university' ? 'business' : 'compass';
-            const color = mode === 'high_school' ? '#4f7cff' : mode === 'university' ? '#a855f7' : '#22c55e';
-            
-            return (
-              <TouchableOpacity
-                key={mode}
-                onPress={() => handleSwitchMode(mode)}
-                className={`flex-row items-center justify-between p-4 rounded-[24px] ${isSelected ? 'bg-[#0d0f12]' : ''}`}
-              >
-                <View className="flex-row items-center">
-                  <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: isSelected ? color : '#2a2f3d' }}>
-                     <Ionicons name={icon} size={20} color={isSelected ? 'white' : '#8a8fa3'} />
-                  </View>
-                  <Text className={`font-syne text-base ${isSelected ? 'text-white font-bold' : 'text-[#8a8fa3]'}`}>{label}</Text>
-                </View>
-                {isSelected && (
-                   updatingMode ? <ActivityIndicator size="small" color={color} /> : <Ionicons name="checkmark-circle" size={20} color={color} />
-                )}
-              </TouchableOpacity>
-            );
-          })}
+        {/* Learning Mode Section (Task 5.1) */}
+        <Text className="text-[#8a8fa3] font-bold uppercase text-xs mb-4 ml-2 tracking-widest">Learning Mode</Text>
+        <View className="bg-[#161920] rounded-[32px] p-6 mb-10 border border-[#2a2f3d]">
+          <View className="flex-row items-center justify-between mb-6">
+            <View>
+              <Text className="text-[#8a8fa3] text-[10px] font-bold uppercase tracking-widest mb-1">Current Portal</Text>
+              <Text className="text-white text-xl font-bold font-syne capitalize">
+                {(learningMode || 'high_school').replace('_', ' ')}
+              </Text>
+            </View>
+            <View className="bg-[#4f7cff1a] px-3 py-1 rounded-full border border-[#4f7cff33]">
+              <Text className="text-[#4f7cff] text-[10px] font-bold uppercase">Active</Text>
+            </View>
+          </View>
+          
+          <TouchableOpacity 
+            onPress={() => {
+              const options = [
+                { id: 'high_school', name: 'High School', desc: 'KCSE and CBC curriculum, Kenya syllabus' },
+                { id: 'university', name: 'University', desc: 'Degree-level subjects, local universities' },
+                { id: 'self_directed', name: 'Self-Directed', desc: 'Learn anything, your way, no curriculum' }
+              ];
+
+              Alert.alert(
+                "Switch Learning Mode",
+                "Choose your preferred scholarly environment:",
+                options.map(opt => ({
+                  text: opt.name,
+                  onPress: () => {
+                    // Task 5.2 Confirmation
+                    Alert.alert(
+                      `Switch to ${opt.name}`,
+                      `Switching to ${opt.name} will change your learning portal. Your progress is saved and you can switch back anytime.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Switch", onPress: () => handleSwitchMode(opt.id as LearningMode) }
+                      ]
+                    );
+                  }
+                })).concat([{ text: "Cancel", style: "cancel" }] as any)
+              );
+            }}
+            className="bg-[#4f7cff] py-4 rounded-2xl items-center justify-center shadow-lg shadow-[#4f7cff]/20"
+          >
+            <Text className="text-white font-bold font-syne">Switch Learning Mode</Text>
+          </TouchableOpacity>
         </View>
 
         <Text className="text-[#8a8fa3] font-bold uppercase text-xs mb-4 ml-2 tracking-widest">Preferences</Text>

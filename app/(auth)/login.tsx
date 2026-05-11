@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { supabase } from '../../lib/supabase';
+import { supabase, isSupabaseAvailable } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
@@ -9,27 +10,47 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const authLock = useRef(false);
 
   const handleAuth = async () => {
+    if (authLock.current || loading) return;
+    
+    // Guard: Check if Supabase is available
+    if (!isSupabaseAvailable()) {
+      Alert.alert(
+        'Offline Mode', 
+        'Authentication is not available offline. Please check your internet connection and try again.'
+      );
+      return;
+    }
+
+    authLock.current = false;
+
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+      authLock.current = false;
       return;
     }
 
     setLoading(true);
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase!.auth.signUp({
+          email,
+          password,
+        });
+
         if (error) throw error;
         Alert.alert('Success', 'Check your email for the confirmation link!');
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase!.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
+      authLock.current = false;
     }
   };
 
@@ -48,7 +69,7 @@ export default function LoginScreen() {
           colors={['transparent', 'rgba(13, 15, 18, 0.8)', '#0d0f12']}
           className="flex-1"
         >
-          <ScrollView 
+          <ScrollView
             className="flex-1 px-6"
             contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
             showsVerticalScrollIndicator={false}
@@ -109,12 +130,17 @@ export default function LoginScreen() {
 
               <TouchableOpacity
                 onPress={handleAuth}
-                disabled={loading}
+                disabled={loading || authLock.current}
                 className="bg-[#4f7cff] h-16 rounded-2xl items-center justify-center shadow-lg shadow-[#4f7cff]/20"
                 style={{ marginTop: isSignUp ? 12 : 0 }}
               >
                 {loading ? (
-                  <ActivityIndicator color="white" />
+                  <View className="flex-row items-center">
+                    <ActivityIndicator color="white" className="mr-2" />
+                    <Text className="text-white text-lg font-bold font-syne">
+                      {isSignUp ? 'Creating Account...' : 'Signing In...'}
+                    </Text>
+                  </View>
                 ) : (
                   <Text className="text-white text-lg font-bold font-syne">
                     {isSignUp ? 'Sign Up' : 'Sign In'}
@@ -124,7 +150,7 @@ export default function LoginScreen() {
             </View>
 
             {/* Switch Mode */}
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setIsSignUp(!isSignUp)}
               className="mt-8 self-center flex-row"
             >
@@ -141,8 +167,3 @@ export default function LoginScreen() {
     </ImageBackground>
   );
 }
-
-// Add a simple LinearGradient fallback if expo-linear-gradient isn't used
-const LinearGradient = ({ colors, children, className }: any) => {
-  return <View className={className} style={{ backgroundColor: colors[2] }}>{children}</View>;
-};

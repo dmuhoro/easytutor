@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SUBJECTS, Subject } from "../lib/subjects";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../lib/haptics';
 
 export default function ExploreLibrary() {
   const router = useRouter();
@@ -15,14 +15,14 @@ export default function ExploreLibrary() {
     const lower = query.toLowerCase();
     return SUBJECTS.filter(s => 
       s.name.toLowerCase().includes(lower) || 
-      s.topics.some(t => t.toLowerCase().includes(lower))
+      s.topics.some(t => t.title.toLowerCase().includes(lower))
     );
   }, [query]);
 
   const renderSubject = ({ item }: { item: Subject }) => (
     <TouchableOpacity
       onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync('light');
         router.push({ pathname: '/study', params: { subjectId: item.id } });
       }}
       className="bg-[#161920] rounded-[28px] p-6 mb-4 border border-[#2a2f3d] flex-row items-center"

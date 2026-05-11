@@ -5,9 +5,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { generateQuizQuestion } from "../../lib/api";
 import { SUBJECTS } from "../../lib/subjects";
 import { useProgressStore } from "../../store/progressStore";
+import { useAuthStore } from "../../store/authStore";
 import { useNetInfo } from "@react-native-community/netinfo";
 import { getCachedQuizQuestions } from "../../lib/cache";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../lib/haptics';
+import { trackEvent } from "../../lib/analytics";
+import { FeedbackModal } from "../../components/FeedbackModal";
 
 interface Question {
   question: string;
@@ -20,6 +23,7 @@ const TOTAL_QUESTIONS = 10;
 
 export default function QuizTab() {
   const { markTopicDone, addQuizScore } = useProgressStore();
+  const { user } = useAuthStore();
   const { isConnected } = useNetInfo();
   const [questionIndex, setQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
@@ -34,31 +38,67 @@ export default function QuizTab() {
   const [isFinished, setIsFinished] = useState(false);
 
   const [currentQuizSubjectName, setCurrentQuizSubjectName] = useState<string>('');
+  const [currentQuizSubjectId, setCurrentQuizSubjectId] = useState<string>('');
   const [currentQuizTopic, setCurrentQuizTopic] = useState<string>('');
+  const [currentQuizTopicId, setCurrentQuizTopicId] = useState<string>('');
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [startTime] = useState(Date.now());
 
   useEffect(() => {
     startInitialQuiz();
+    return () => {
+      const duration = Math.floor((Date.now() - startTime) / 1000);
+      if (user?.id) {
+        trackEvent('time_spent', {
+          user_id: user.id,
+          learning_mode: 'unknown',
+          screen: 'quiz',
+          duration,
+          topic: currentQuizTopic
+        });
+      }
+    };
   }, []);
 
   const getRandomTopic = () => {
     const randomSubject = SUBJECTS[Math.floor(Math.random() * SUBJECTS.length)];
     const randomTopic = randomSubject.topics[Math.floor(Math.random() * randomSubject.topics.length)];
-    return { subjectId: randomSubject.id, subjectName: randomSubject.name, topicName: randomTopic };
+    return { subjectId: randomSubject.id, subjectName: randomSubject.name, topicId: randomTopic.id, topicName: randomTopic.title };
   };
 
   const startInitialQuiz = async () => {
     setLoading(true);
-    const { subjectName, topicName } = getRandomTopic();
+    const { subjectId, subjectName, topicId, topicName } = getRandomTopic();
+    setCurrentQuizSubjectId(subjectId);
     setCurrentQuizSubjectName(subjectName);
+    setCurrentQuizTopicId(topicId);
     setCurrentQuizTopic(topicName);
 
     const res = await generateQuizQuestion(subjectName, topicName);
     if (res.success) {
       setQuestionData(res.data);
+      if (user?.id) {
+        trackEvent('quiz_started', {
+          user_id: user.id,
+          learning_mode: 'unknown',
+          subjectName,
+          topicName
+        });
+      }
       // Start pre-fetching the SECOND question immediately
       preFetchNext();
     } else {
       setError(res.error ?? 'Failed to start quiz.');
+      if (user?.id) {
+        trackEvent('quiz_generation_failed', {
+          user_id: user.id,
+          learning_mode: 'unknown',
+          subjectName,
+          topicName,
+          error: res.error,
+          provider: 'AI'
+        });
+      }
     }
     setLoading(false);
   };
@@ -77,7 +117,7 @@ export default function QuizTab() {
   const handleSelectOption = (index: number) => {
     if (showExplanation || !questionData) return;
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impactAsync('medium');
     setSelectedOption(index);
     setShowExplanation(true);
     
@@ -90,8 +130,18 @@ export default function QuizTab() {
 
   const handleNextQuestion = () => {
     if (questionIndex + 1 >= TOTAL_QUESTIONS) {
-       addQuizScore(score, TOTAL_QUESTIONS);
+       addQuizScore(score, TOTAL_QUESTIONS, currentQuizTopic, currentQuizSubjectId, currentQuizTopicId);
+       if (user?.id) {
+         trackEvent('quiz_completed', {
+           user_id: user.id,
+           learning_mode: 'unknown',
+           topic: currentQuizTopic,
+           score,
+           total: TOTAL_QUESTIONS
+         });
+       }
        setIsFinished(true);
+       setTimeout(() => setShowFeedback(true), 1500);
        return;
     }
 
@@ -138,17 +188,27 @@ export default function QuizTab() {
             </View>
             
             <Text className="text-white text-4xl font-bold font-syne mb-2 text-center">{feedback}</Text>
-            <Text className="text-[#8a8fa3] text-lg font-dmsans mb-8 text-center max-w-[200px]">
+            <Text className="text-[#8a8fa3] text-lg font-dmsans mb-4 text-center max-w-[200px]">
               You answered {score} out of {TOTAL_QUESTIONS} questions correctly.
             </Text>
+
+            {/* XP Badge */}
+            <View className="bg-[#4f7cff]/10 px-6 py-3 rounded-2xl border border-[#4f7cff]/30 mb-8 flex-row items-center">
+               <Ionicons name="sparkles" size={20} color="#4f7cff" />
+               <Text className="text-white font-bold font-syne text-xl ml-2">
+                 +{percentage >= 80 ? 20 : percentage >= 50 ? 10 : 5} XP
+               </Text>
+            </View>
 
             <View className="w-full h-[1px] bg-[#2a2f3d] mb-8" />
 
             <View className="w-full flex-row justify-between mb-8">
-               <View className="items-center flex-1">
-                  <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase mb-1">Time spent</Text>
-                  <Text className="text-white font-bold font-syne text-lg">4:32m</Text>
-               </View>
+                <View className="items-center flex-1">
+                   <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase mb-1">Time spent</Text>
+                   <Text className="text-white font-bold font-syne text-lg">
+                     {Math.floor((Date.now() - startTime) / 60000)}:{(Math.floor((Date.now() - startTime) / 1000) % 60).toString().padStart(2, '0')}m
+                   </Text>
+                </View>
                <View className="w-[1px] h-10 bg-[#2a2f3d]" />
                <View className="items-center flex-1">
                   <Text className="text-[#8a8fa3] text-xs font-dmsans uppercase mb-1">Status</Text>
@@ -159,27 +219,38 @@ export default function QuizTab() {
                </View>
             </View>
 
-            <TouchableOpacity 
-              className="bg-[#4f7cff] w-full py-5 rounded-2xl flex-row items-center justify-center shadow-lg shadow-[#4f7cff]/30"
-              onPress={handleTryAgain}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="refresh" size={20} color="#ffffff" />
-              <Text className="text-white font-bold font-syne text-lg ml-2">Take Another Quiz</Text>
-            </TouchableOpacity>
+            <View className="w-full flex-row">
+              <TouchableOpacity 
+                className="bg-[#161920] flex-1 py-5 rounded-2xl flex-row items-center justify-center border border-[#2a2f3d] mr-3"
+                onPress={handleTryAgain}
+              >
+                <Ionicons name="refresh" size={18} color="#8a8fa3" />
+                <Text className="text-[#8a8fa3] font-bold font-syne text-lg ml-2">Retry</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                className="bg-[#4f7cff] flex-2 py-5 rounded-3xl flex-row items-center justify-center shadow-lg shadow-[#4f7cff]/30"
+                style={{ flex: 2 }}
+                onPress={() => {
+                  setIsFinished(false);
+                  setQuestionIndex(0);
+                  setScore(0);
+                }}
+              >
+                <Text className="text-white font-bold font-syne text-lg mr-2">Dashboard</Text>
+                <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
           </View>
           
-          <TouchableOpacity 
-            className="mt-8 py-2 px-6"
-            onPress={() => {
-              setIsFinished(false);
-              setQuestionIndex(0);
-              setScore(0);
-            }}
-          >
-            <Text className="text-[#8a8fa3] font-dmsans text-base">Back to Dashboard</Text>
-          </TouchableOpacity>
         </View>
+        <FeedbackModal 
+          isVisible={showFeedback} 
+          onClose={() => setShowFeedback(false)} 
+          source="quiz_completion" 
+          topic={currentQuizTopic}
+          contentType="quiz"
+        />
       </SafeAreaView>
     );
   }

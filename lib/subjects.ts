@@ -1,84 +1,43 @@
-export interface Subject {
-  id: string;
-  name: string;
-  icon: string;
-  topics: string[];
+/**
+ * Subjects and Topics adapter
+ * Derives from constants/subjects.ts and constants/topics.ts
+ *
+ * This file is maintained for backward compatibility.
+ */
+
+import { SUBJECTS, SubjectDef } from '../constants/subjects';
+import { TOPICS, TopicDef } from '../constants/topics';
+
+export interface Topic {
+  id: string;   // local ID
+  title: string;
 }
 
-export const SUBJECTS: Subject[] = [
-  {
-    id: 'engineering-math',
-    name: 'Engineering Math',
-    icon: '🧮',
-    topics: [
-      'Differentiation', 'Calculus', 'Series & Sequences', 
-      'Vectors & Vector Calculus', 'Matrices & Eigenvalues', 'Binomial Expansion', 
-      'Algebra', 'Simultaneous Equations', 'Indices', 'Quadratic Equations', 
-      'Logarithms', 'Trigonometry & Hyperbolic Functions', 'Complex Numbers'
-    ]
-  },
-  {
-    id: 'auto-eng-science',
-    name: 'Auto Eng Science',
-    icon: '⚙️',
-    topics: [
-      'Angular Motion', 'Temperature & Heat', 'Simply Supported Beams', 
-      'Simple Machines', 'Friction'
-    ]
-  },
-  {
-    id: 'vehicle-fuel-system',
-    name: 'Vehicle Fuel System',
-    icon: '⛽',
-    topics: [
-      'Spark Ignition', 'Electronic Fuel Injection', 
-      'Carburettor', 'Fuel Injection CI & SI', 'CI Engine Governors', 'Pumps'
-    ]
-  },
-  {
-    id: 'vehicle-electrical-systems',
-    name: 'Vehicle Electrical Systems',
-    icon: '⚡',
-    topics: [
-      'Ignition System', 'Charging System', 
-      'Starting System', 'Lighting System', 'Auxiliary System', 'Battery Servicing'
-    ]
-  },
-  {
-    id: 'vehicle-basic-maintenance',
-    name: 'Vehicle Basic Maintenance',
-    icon: '🔧',
-    topics: [
-      'OBD II Scanner', 'Wheels & Tyres', 'HVAC', 'Overhaul'
-    ]
-  },
-  {
-    id: 'technical-drawing',
-    name: 'Technical Drawing',
-    icon: '📐',
-    topics: [
-      'Geometric Drawing', 'Construction of Figures', 
-      'Isometric & Oblique Projection', 'Construction of Circles', 'Tangency', 
-      'Conic Sections & Developments'
-    ]
-  },
-  {
-    id: 'workshop-technology',
-    name: 'Workshop Technology',
-    icon: '🛠️',
-    topics: [
-      'Metals Tools & Equipment', 'Properties of Metals', 
-      'Drilling', 'Welding', 'Milling', 'Lathe Machine'
-    ]
-  },
-  {
-    id: 'work-ethics-practices',
-    name: 'Work Ethics & Practices',
-    icon: '🤝',
-    topics: [
-      'Self-Management', 'Interpersonal Communication', 
-      'Safe Work Habits', 'Lead a Team', 'Plan & Organise Work', 'Professional Growth', 
-      'Workplace Learning', 'Problem Solving'
-    ]
-  }
-];
+export interface Subject {
+  id: string;   // local ID
+  name: string;
+  icon: string;
+  topics: Topic[];
+}
+
+export const SUBJECTS_LIST: Subject[] = SUBJECTS.map((s: SubjectDef) => ({
+  id: s.id,
+  name: s.name,
+  icon: s.icon,
+  topics: TOPICS
+    .filter((t: TopicDef) => t.subject_id === s.id)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((t: TopicDef) => ({
+      id: t.id,
+      title: t.title,
+    })),
+}));
+
+// Export as SUBJECTS for backward compatibility
+export { SUBJECTS_LIST as SUBJECTS };
+
+export const getSubjectById = (id: string): Subject | undefined =>
+  SUBJECTS_LIST.find((s) => s.id === id);
+
+export const getTopicById = (subjectId: string, topicId: string): Topic | undefined =>
+  getSubjectById(subjectId)?.topics.find((t) => t.id === topicId);

@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateStudyRoadmap } from "../../lib/api";
 import { useRoadmapStore } from "../../store/roadmapStore";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../lib/haptics';
 
 export default function CreateRoadmap() {
   const router = useRouter();
@@ -17,7 +17,7 @@ export default function CreateRoadmap() {
     if (!topic.trim()) return;
 
     setLoading(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impactAsync('medium');
 
     try {
       const res = await generateStudyRoadmap(topic.trim());
@@ -30,7 +30,7 @@ export default function CreateRoadmap() {
           createdAt: new Date().toISOString()
         };
         addRoadmap(newRoadmap);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.notificationAsync('success');
         router.replace({ pathname: `/roadmaps/${newRoadmap.id}` });
       } else {
         Alert.alert("Error", res.error || "Failed to generate roadmap.");

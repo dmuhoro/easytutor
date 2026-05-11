@@ -33,7 +33,7 @@ END $$;
 
 -- Create New Subjects Table
 CREATE TABLE subjects (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name TEXT NOT NULL,
   icon TEXT,
   level TEXT NOT NULL CHECK (level IN ('high_school', 'university', 'general')),
@@ -49,7 +49,7 @@ CREATE POLICY "Public read" ON subjects FOR SELECT USING (true);
 -- Create New Topics Table
 CREATE TABLE topics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   subtopics JSONB,
   form_level TEXT,

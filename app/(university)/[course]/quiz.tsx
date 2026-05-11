@@ -4,10 +4,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { QuizEngine } from "../../../components/QuizEngine";
 import { Ionicons } from "@expo/vector-icons";
+import { useProgressStore } from "../../../store/progressStore";
 
 export default function UniversityQuiz() {
   const router = useRouter();
   const { course, topic } = useLocalSearchParams();
+  const { addQuizScore } = useProgressStore();
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
@@ -28,7 +30,14 @@ export default function UniversityQuiz() {
           subjectName={typeof course === 'string' ? course : 'University Course'} 
           topicName={typeof topic === 'string' ? topic : 'Academic Module'} 
           totalQuestions={15} // University level gets more questions
-          onFinish={() => {}}
+          onFinish={async (score, total) => {
+            if (typeof course !== 'string') {
+              throw new Error('[FATAL] topic_id resolution failed');
+            }
+            await addQuizScore(score, total, typeof topic === 'string' ? topic : 'Academic Module', course);
+          }}
+          onContinue={() => router.back()}
+          subjectId={typeof course === 'string' ? course : undefined}
         />
       </View>
     </SafeAreaView>
