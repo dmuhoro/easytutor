@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSettingsStore } from '../store/settingsStore';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { PortalSwitcher } from '../components/ui/PortalSwitcher';
 
 const MODELS = ['llama3.2', 'mistral', 'phi3', 'gemma2'];
 
@@ -77,6 +78,8 @@ export default function SettingsScreen() {
             })}
           </View>
         </View>
+
+        <PortalSwitcher />
 
       </ScrollView>
     </SafeAreaView>
