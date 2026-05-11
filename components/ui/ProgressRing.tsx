@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import Animated, { 
+  useAnimatedProps, 
+  useSharedValue, 
+  withSpring, 
+  withTiming 
+} from 'react-native-reanimated';
 import { cn } from '../../lib/utils';
 import { COLORS } from '../../lib/theme';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface ProgressRingProps {
   progress: number; // 0 to 100
@@ -26,7 +34,22 @@ export function ProgressRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
   const safeProgress = Math.min(Math.max(progress, 0), 100);
-  const strokeDashoffset = circumference - (safeProgress / 100) * circumference;
+  
+  const animatedProgress = useSharedValue(0);
+
+  useEffect(() => {
+    animatedProgress.value = withSpring(safeProgress, {
+      damping: 15,
+      stiffness: 100,
+    });
+  }, [safeProgress]);
+
+  const animatedProps = useAnimatedProps(() => {
+    const strokeDashoffset = circumference - (animatedProgress.value / 100) * circumference;
+    return {
+      strokeDashoffset,
+    };
+  });
 
   return (
     <View className={cn('items-center justify-center relative', className)} style={{ width: size, height: size }}>
@@ -39,14 +62,14 @@ export function ProgressRing({
           strokeWidth={strokeWidth}
           fill="none"
         />
-        <Circle
+        <AnimatedCircle
           cx={size / 2}
           cy={size / 2}
           r={radius}
           stroke={color}
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
+          animatedProps={animatedProps}
           strokeLinecap="round"
           fill="none"
           rotation="-90"

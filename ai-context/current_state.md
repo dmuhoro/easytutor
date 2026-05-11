@@ -1,4 +1,11 @@
-# Current State: EasyTutor (May 2026)
+# Current State: EasyTutor
+**Version:** 1.0.0 (Production Stable)
+**Last Updated:** 2026-05-11
+
+## Active Milestones
+- [x] Sprint 1: Core Engine Stabilization (Semantic Chunking, Worker Ingestion)
+- [x] Sprint 2: Infrastructure Evolution (HNSW Search, Local Bridge, Telemetry)
+- [x] Sprint 3: Global Resilience & Production Launch (Security RLS, Sync Engine, Premium UX)
 
 ## Fully Working Features
 - **Multi-Portal Routing:** Seamless navigation between High School, University, and Self-Directed portals.

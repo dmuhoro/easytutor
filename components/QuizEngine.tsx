@@ -12,6 +12,8 @@ import { recordProgress } from '../lib/progress';
 import { awardXP } from '../lib/xp';
 import { useAuthStore } from '../store/authStore';
 import { useRoadmapStore } from '../store/roadmapStore';
+import { ProgressRing } from './ui/ProgressRing';
+import { GlassView } from './ui/GlassView';
 
 interface Question {
   question: string;
@@ -268,9 +270,15 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
       <View className="flex-1 items-center justify-center" style={containerStyle}>
         <Card elevated className="w-full p-8 items-center overflow-hidden relative">
           <View className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ backgroundColor: accentColor }} />
-          <View className="w-24 h-24 bg-surface-bg rounded-full items-center justify-center mb-6 border-4" style={{ borderColor: accentColor }}>
-             <Text className="text-white text-3xl font-bold font-syne">{percentage}%</Text>
-          </View>
+          
+          <ProgressRing 
+            progress={percentage} 
+            size={120} 
+            strokeWidth={10} 
+            color={accentColor} 
+            className="mb-6" 
+          />
+
           <CardTitle className="text-4xl mb-2 text-center">{feedback}</CardTitle>
           <CardDescription className="text-lg mb-4 text-center">
             You answered {score} out of {totalQuestions} correctly.
@@ -389,15 +397,15 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
           )}
 
           {showExplanation && interventionText && (
-            <Card className="mb-8 border-[#f59e0b] bg-[#f59e0b]/5">
+            <GlassView className="mb-8" borderColor="#f59e0b">
               <View className="flex-row items-center mb-2">
                 <Ionicons name="bulb-outline" size={20} color="#f59e0b" />
-                <CardTitle className="text-lg ml-2 text-[#f59e0b]">Tutor Intervention</CardTitle>
+                <Text className="text-lg ml-2 text-[#f59e0b] font-syne font-bold">Tutor Intervention</Text>
               </View>
-              <CardDescription className="text-base leading-6 text-white/90">
+              <Text className="text-base leading-6 text-white/90 font-dmsans">
                 {interventionText}
-              </CardDescription>
-            </Card>
+              </Text>
+            </GlassView>
           )}
 
           {showExplanation && wrongStreak >= 5 && (
