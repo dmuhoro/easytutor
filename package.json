@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:flows": "vitest run",
+    "build": "npx expo export --platform web",
     "audit:full": "./scripts/full-audit.sh",
     "dep:check": "madge --circular --extensions ts,tsx .",
     "dep:graph": "madge --image dependency-graph.png --extensions ts,tsx .",
