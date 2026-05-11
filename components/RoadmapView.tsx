@@ -2,16 +2,25 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CustomRoadmap } from '../store/roadmapStore';
+import { COLORS } from '../lib/theme';
 
 interface RoadmapViewProps {
   roadmap: CustomRoadmap;
   checkedTasks: Record<number, string[]>;
   onToggleTask: (day: number, task: string) => void;
+  onTeachTask?: (task: string) => void;
   containerStyle?: ViewStyle;
   hideProgress?: boolean;
 }
 
-export const RoadmapView: React.FC<RoadmapViewProps> = ({ roadmap, checkedTasks, onToggleTask, containerStyle, hideProgress }) => {
+export const RoadmapView: React.FC<RoadmapViewProps> = ({ 
+  roadmap, 
+  checkedTasks, 
+  onToggleTask, 
+  onTeachTask,
+  containerStyle, 
+  hideProgress 
+}) => {
   const totalTasks = roadmap.days.reduce((acc, day) => acc + day.tasks.length, 0);
   const completedTasksCount = Object.values(checkedTasks).reduce((acc, dayTasks) => acc + dayTasks.length, 0);
   const progress = totalTasks > 0 ? Math.round((completedTasksCount / totalTasks) * 100) : 0;
@@ -79,22 +88,37 @@ export const RoadmapView: React.FC<RoadmapViewProps> = ({ roadmap, checkedTasks,
                 const isChecked = completedTasks.includes(task);
                 
                 return (
-                  <TouchableOpacity 
+                  <View 
                     key={`${dayPlan.day}-${tIndex}`} 
-                    onPress={() => onToggleTask(dayPlan.day, task)}
-                    activeOpacity={0.7}
                     className="bg-[#161920] rounded-2xl p-4 mb-3 border border-[#2a2f3d]/60 flex-row items-center"
                   >
-                    <View className="flex-1 pr-3">
+                    <TouchableOpacity 
+                      className="flex-1 pr-3"
+                      onPress={() => onToggleTask(dayPlan.day, task)}
+                    >
                       <Text className={`text-base font-dmsans ${isChecked ? 'text-[#3a3f53] line-through' : 'text-[#e2e8f0]'}`}>
                         {task}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                     
-                    <View className={`w-6 h-6 rounded-lg items-center justify-center border ${isChecked ? 'bg-[#4f7cff] border-[#4f7cff]' : 'border-[#2a2f3d]'}`}>
-                      {isChecked && <Ionicons name="checkmark" size={16} color="white" />}
+                    <View className="flex-row items-center">
+                      {onTeachTask && !isChecked && (
+                        <TouchableOpacity 
+                          onPress={() => onTeachTask(task)}
+                          className="mr-3 bg-brand-500/10 p-2 rounded-lg"
+                        >
+                          <Ionicons name="school-outline" size={16} color={COLORS.brand[500]} />
+                        </TouchableOpacity>
+                      )}
+                      
+                      <TouchableOpacity 
+                        onPress={() => onToggleTask(dayPlan.day, task)}
+                        className={`w-6 h-6 rounded-lg items-center justify-center border ${isChecked ? 'bg-brand-500 border-brand-500' : 'border-[#2a2f3d]'}`}
+                      >
+                        {isChecked && <Ionicons name="checkmark" size={16} color="white" />}
+                      </TouchableOpacity>
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 );
               })}
             </View>

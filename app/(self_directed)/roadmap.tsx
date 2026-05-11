@@ -153,6 +153,17 @@ export default function SelfDirectedRoadmap() {
     toggleTask(existingRoadmap.id, day, task);
   };
 
+  const handleTeachTask = (task: string) => {
+    Haptics.impactAsync('medium');
+    router.push({
+      pathname: '/(self_directed)/quiz',
+      params: { 
+        topic: task,
+        context: `This is part of my roadmap for: ${topic}` 
+      }
+    });
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
       <View className="px-5 py-6 border-b border-[#2a2f3d] flex-row items-center justify-between">
@@ -224,6 +235,7 @@ export default function SelfDirectedRoadmap() {
               roadmap={existingRoadmap} 
               checkedTasks={checkedTasks[existingRoadmap.id] || {}} 
               onToggleTask={handleToggle}
+              onTeachTask={handleTeachTask}
             />
             {showCelebration && (
               <View className="absolute inset-0 items-center justify-center pointer-events-none">

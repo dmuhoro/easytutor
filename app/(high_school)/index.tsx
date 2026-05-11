@@ -9,6 +9,7 @@ import { getLocalSubjects, getRecommendedTopic, getWeakTopics } from "../../data
 import { useAuthStore } from "../../store/authStore";
 import { useProgressStore } from "../../store/progressStore";
 import { SyncIndicator } from "../../components/SyncIndicator";
+import { PortalHeader } from "../../components/PortalHeader";
 import { Section } from "@/components/ui/Section";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Text } from "@/components/ui/text";
@@ -89,6 +90,7 @@ export default function HighSchoolSyllabus() {
 
   return (
     <SafeAreaView className="flex-1 bg-surface-bg" edges={['top']}>
+      <PortalHeader />
       <ScrollView 
         className="flex-1 px-5"
         contentContainerStyle={{ paddingTop: 24, paddingBottom: 40 }}

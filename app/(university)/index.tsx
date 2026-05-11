@@ -7,6 +7,8 @@ import { useRoadmapStore } from "../../store/roadmapStore";
 import { Ionicons } from "@expo/vector-icons";
 import { SUBJECTS } from "../../lib/subjects";
 
+import { PortalHeader } from "../../components/PortalHeader";
+
 export default function UniversityFaculties() {
   const router = useRouter();
   const { setSubjectId, roadmaps, fetchSavedRoadmaps } = useRoadmapStore();
@@ -49,8 +51,9 @@ export default function UniversityFaculties() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
+      <PortalHeader />
       <ScrollView 
-        className="flex-1 px-5 pt-8"
+        className="flex-1 px-5 pt-4"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFaculties(); }} tintColor="#a855f7" />
         }
