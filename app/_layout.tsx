@@ -200,12 +200,9 @@ export default function RootLayout() {
     } else if (!onboardingComplete) {
       if (!inOnboarding) router.replace('/onboarding');
     } else {
-      // Logic for Portal Redirection
+      // Logic for Unified Command Center
       if (inAuthGroup || inOnboarding) {
-        if (learningMode === 'high_school') router.replace('/(high_school)');
-        else if (learningMode === 'university') router.replace('/(university)');
-        else if (learningMode === 'self_directed') router.replace('/(self_directed)');
-        else router.replace('/(tabs)'); // Fallback
+        router.replace('/');
       }
     }
   }, [isAppReady, session, onboardingComplete, learningMode, segments]);

@@ -2,6 +2,8 @@ import { Redirect } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import { useRoadmapStore } from '../store/roadmapStore';
 import { View, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CommandCenter } from '../components/CommandCenter';
 
 export default function IndexScreen() {
   const { session, isLoading: authLoading } = useAuthStore();
@@ -25,19 +27,10 @@ export default function IndexScreen() {
     return <Redirect href="/onboarding" />;
   }
 
-  // 3. If session AND onboarding_complete = TRUE → redirect based on learning_mode
-  if (learningMode === 'high_school') {
-    return <Redirect href="/(high_school)" />;
-  }
-  
-  if (learningMode === 'university') {
-    return <Redirect href="/(university)" />;
-  }
-  
-  if (learningMode === 'self_directed') {
-    return <Redirect href="/(self_directed)" />;
-  }
-
-  // Fallback to tabs or explore
-  return <Redirect href="/explore" />;
+  // 3. If session AND onboarding_complete = TRUE → Show CommandCenter
+  return (
+    <SafeAreaView className="flex-1 bg-[#0d0f12]" edges={['top']}>
+      <CommandCenter />
+    </SafeAreaView>
+  );
 }

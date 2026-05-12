@@ -81,6 +81,34 @@ export default function SettingsScreen() {
 
         <PortalSwitcher />
 
+        <View className="mt-8 mb-20">
+          <Text className="text-[#8a8fa3] font-bold font-syne text-xs uppercase tracking-widest mb-4 px-2">Support & Info</Text>
+          <View className="bg-[#161920] rounded-3xl border border-[#2a2f3d]/60 overflow-hidden">
+            <TouchableOpacity className="flex-row items-center justify-between p-5 border-b border-[#2a2f3d]/30">
+              <View className="flex-row items-center">
+                <Ionicons name="help-circle-outline" size={20} color="#8a8fa3" className="mr-4" />
+                <Text className="text-white font-dmsans ml-3">Help Center</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#3a3f53" />
+            </TouchableOpacity>
+            <TouchableOpacity className="flex-row items-center justify-between p-5">
+              <View className="flex-row items-center">
+                <Ionicons name="information-circle-outline" size={20} color="#8a8fa3" className="mr-4" />
+                <Text className="text-white font-dmsans ml-3">App Version</Text>
+              </View>
+              <Text className="text-[#3a3f53] font-dmsans text-xs">v1.0.0-beta</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity 
+            className="mt-8 flex-row items-center justify-center p-5 rounded-3xl bg-red-500/5 border border-red-500/10"
+            onPress={() => router.push('/')}
+          >
+            <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+            <Text className="text-red-500 font-bold font-syne ml-3">Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+
       </ScrollView>
     </SafeAreaView>
   );
