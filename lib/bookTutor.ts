@@ -5,6 +5,24 @@ import { shouldUseCloud } from './aiProvider';
 import { measurePerformance } from './performance';
 import { getMemoryCachedResponse, setMemoryCachedResponse } from './cache';
 import { deduplicateRequest, retryAsync, withTimeout } from './network';
+import { PortalContextResolver } from '../src/infrastructure/contextResolver';
+import { GovernedRetrievalContext } from '../src/infrastructure/database';
+
+const resolveTutorRetrievalContext = (question: string): GovernedRetrievalContext => {
+  const portalContext = PortalContextResolver.resolve();
+  const taxonomyScope = portalContext.taxonomy_scope
+    ?? portalContext.knowledge_scope
+    ?? `taxonomy:${portalContext.portal_type}`;
+
+  return {
+    ...portalContext,
+    curriculum_scope: portalContext.curriculum_scope ?? 'UNKNOWN_CURRICULUM',
+    taxonomy_scope: taxonomyScope,
+    mastery_level: portalContext.mastery_level ?? 0,
+    user_goal: portalContext.user_goal ?? question,
+    active_path: portalContext.active_path?.length ? portalContext.active_path : [taxonomyScope],
+  };
+};
 
 export const askBookTutor = async ({
   question
@@ -19,11 +37,11 @@ export const askBookTutor = async ({
     }
 
     const chunks = await measurePerformance('RETRIEVAL', async () => {
-      return await retrieveRelevantChunks(question);
+      return await retrieveRelevantChunks(question, resolveTutorRetrievalContext(question));
     });
 
     const context = chunks
-      .map((c: any) => c.content)
+      .map((c) => c.content)
       .join('\n');
 
     const prompt = `

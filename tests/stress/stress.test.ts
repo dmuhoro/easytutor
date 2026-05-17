@@ -3,6 +3,7 @@ import { IngestionWorker } from '../../lib/ingestion/worker';
 import { retrieveRelevantChunks } from '../../lib/retrieval';
 import { useIngestionStore } from '../../lib/ingestion/ingestionState';
 import { explanationCache } from '../../lib/cache/semanticCache';
+import { GovernedRetrievalContext } from '../../src/infrastructure/database';
 
 // Mocks
 vi.mock('../../lib/embeddings', () => ({
@@ -49,9 +50,17 @@ describe('Real-World Stress Tests', () => {
 
   it('performs high-frequency retrieval under simulated load', async () => {
     const queries = Array.from({ length: 50 }).map((_, i) => `Query ${i}`);
+    const context: GovernedRetrievalContext = {
+      portal_type: 'high_school',
+      curriculum_scope: 'KICD_KCSE',
+      taxonomy_scope: 'HS-MATH',
+      mastery_level: 40,
+      user_goal: 'stress retrieval safety test',
+      active_path: ['HS-MATH'],
+    };
     
     const results = await Promise.all(
-      queries.map(q => retrieveRelevantChunks(q, { maxChunks: 3 }))
+      queries.map(q => retrieveRelevantChunks(q, context, { maxChunks: 3 }))
     );
     
     expect(results).toHaveLength(50);

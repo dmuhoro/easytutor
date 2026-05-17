@@ -15,3 +15,11 @@
 ## Batch Processing
 - **Type Safety:** Explicitly type generic batch processors to prevent 'unknown' type errors in large pipelines.
 - **Concurrency:** Limit batch concurrency to 1 if the backend (local Ollama) is single-threaded to prevent request queuing latency.
+
+## Database Governance
+- **Supabase Builders Are Awaitable:** Do not wrap query-builder creation in `async`; `await` will execute the builder early and return a response instead of a chainable query.
+- **Portal Context Must Be Explicit in Tests:** Governed writes should accept explicit portal ownership when the UI has not initialized ambient portal state.
+
+## Orchestration
+- **Telemetry Must Accept Runtime Ownership:** Intelligence services cannot rely on ambient portal state; orchestration telemetry should receive `user_id` and `portal_type` from `RuntimeContext`.
+- **Command Layers Need Deterministic Tests:** Mock retrieval and model routers at the boundary so orchestration contract tests verify routing, mastery, and prefetch behavior without live services.

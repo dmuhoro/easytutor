@@ -1,6 +1,6 @@
-import { getSupabaseClient } from '../supabaseOps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { Database, GovernedPayload } from '../../src/infrastructure/database';
 
 const SYNC_QUEUE_KEY = '@easytutor_sync_queue';
 
@@ -8,7 +8,7 @@ export interface SyncTask {
   id: string;
   table: string;
   action: 'insert' | 'update' | 'upsert';
-  payload: any;
+  payload: GovernedPayload;
   timestamp: number;
 }
 
@@ -58,11 +58,9 @@ export class SyncEngine {
 
     try {
       let queue = await this.getQueue();
-      const supabase = getSupabaseClient();
-
       while (queue.length > 0) {
         const task = queue[0];
-        const { error } = await this.executeTask(supabase, task);
+        const error = await this.executeTask(task);
 
         if (error) {
           console.error(`[SYNC] Task failed: ${task.table}`, error);
@@ -80,16 +78,14 @@ export class SyncEngine {
     }
   }
 
-  private async executeTask(supabase: any, task: SyncTask) {
-    switch (task.action) {
-      case 'insert':
-        return supabase.from(task.table).insert(task.payload);
-      case 'update':
-        return supabase.from(task.table).update(task.payload).match({ id: task.payload.id });
-      case 'upsert':
-        return supabase.from(task.table).upsert(task.payload);
-      default:
-        return { error: new Error('Invalid action') };
+  private async executeTask(task: SyncTask): Promise<Error | null> {
+    try {
+      await Database.governedWrite(task.table, task.payload, {
+        action: task.action === 'insert' ? 'insert' : 'upsert',
+      });
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err : new Error(String(err));
     }
   }
 

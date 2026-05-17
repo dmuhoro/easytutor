@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logEvent, logError } from '../lib/logEvent';
-import { assertRequiredWriteFields, getAuthenticatedUser, getSupabaseClient, logSupabaseError } from '../lib/supabaseOps';
+import { Database } from '../src/infrastructure/database';
+import { SYSTEM_CONFIG } from '../src/config/registry';
+import { PortalType } from '../src/types/canonical';
 import { resolveTopicIdOrThrow } from '../lib/resolveTopicId';
-
 
 export interface QuizScore {
   date: string;
@@ -19,12 +20,38 @@ export interface XPEvent {
   source: 'quiz' | 'task' | 'streak';
 }
 
+interface ProgressRow {
+  subject_id: string;
+  topic_id: string;
+}
+
+interface QuizSessionRow {
+  score: number;
+  total: number;
+  date: string;
+  topic_id: string;
+  topics?: { title?: string } | null;
+}
+
+interface ProfileStatsRow {
+  current_streak?: number | null;
+  streak_freezes?: number | null;
+  last_active_date?: string | null;
+}
+
 export const getLevel = (xp: number): string => {
-  if (xp >= 1000) return 'Expert';
-  if (xp >= 600) return 'Advanced';
-  if (xp >= 300) return 'Scholar';
-  if (xp >= 100) return 'Explorer';
+  const t = SYSTEM_CONFIG.MASTERY.THRESHOLDS;
+  if (xp >= t.EXPERT) return 'Expert';
+  if (xp >= t.ADVANCED) return 'Advanced';
+  if (xp >= t.SCHOLAR) return 'Scholar';
+  if (xp >= t.EXPLORER) return 'Explorer';
   return 'Beginner';
+};
+
+const portalFromSubjectId = (subjectId: string): PortalType => {
+  if (subjectId.startsWith('uni-') || subjectId.startsWith('UNI-')) return 'university';
+  if (subjectId.startsWith('sd-') || subjectId.startsWith('KE-')) return 'knowledge_explorer';
+  return 'high_school';
 };
 
 interface ProgressState {
@@ -40,7 +67,7 @@ interface ProgressState {
   
   setUserId: (id: string | null) => void;
   syncFromCloud: () => Promise<void>;
-  awardXP: (amount: number, source?: XPEvent['source']) => Promise<void>;
+  awardXP: (amount: number, source?: XPEvent['source'], portalType?: PortalType) => Promise<void>;
   markTopicDone: (subjectId: string, topicId: string, topicName: string) => Promise<void>;
   addQuizScore: (score: number, total: number, topic: string, subjectId: string, topicId?: string) => Promise<void>;
   updateStreak: () => Promise<void>;
@@ -81,69 +108,57 @@ export const useProgressStore = create<ProgressState>()(
         if (!userId) return;
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-
-          // 1. Fetch User Progress
-          const { data: progressData, error: progressError } = await client
-            .from('user_progress')
-            .select('subject_id, topic_id, completed_at')
-            .eq('user_id', user.id);
+          // ENFORCE GOVERNED QUERY (PORTAL ISOLATION)
+          const { data: progressData, error: progressError } = await Database.governedQuery({
+            table: 'user_progress',
+            columns: 'subject_id, topic_id',
+            userId,
+          });
 
           if (progressError) {
-            logSupabaseError('user_progress', 'select', progressError);
             logError('PROGRESS_user_progress_fetch_failed', progressError);
-          } else if (!progressData || progressData.length === 0) {
-            console.warn('[PROGRESS] [EMPTY RESULT] user_progress', user.id);
           } else {
             const mappedProgress: Record<string, string[]> = {};
-            (progressData || []).forEach(item => {
+            ((progressData ?? []) as unknown as ProgressRow[]).forEach((item) => {
               if (!mappedProgress[item.subject_id]) mappedProgress[item.subject_id] = [];
               mappedProgress[item.subject_id].push(item.topic_id);
             });
             set({ topicsStudied: mappedProgress });
           }
 
-          // 2. Fetch Quiz Sessions
-          const { data: quizData, error: quizError } = await client
-            .from('quiz_sessions')
-            .select('score, total, date, topic_id, topics(title)')
-            .eq('user_id', user.id)
+          // 2. Fetch Quiz Sessions (Governed)
+          const { data: quizData, error: quizError } = await Database.governedQuery({
+            table: 'quiz_sessions',
+            columns: 'score, total, date, topic_id, topics(title)',
+            userId,
+          })
             .order('date', { ascending: false });
 
           if (quizError) {
-            logSupabaseError('quiz_sessions', 'select', quizError);
             logError('PROGRESS_quiz_sessions_fetch_failed', quizError);
-          } else if (!quizData || quizData.length === 0) {
-            console.warn('[PROGRESS] [EMPTY RESULT] quiz_sessions', user.id);
           } else {
-            set({ quizScores: quizData.map(q => ({
+            set({ quizScores: ((quizData ?? []) as unknown as QuizSessionRow[]).map((q) => ({
               score: q.score,
               total: q.total,
               date: q.date,
-              topic: (q.topics as any)?.title || q.topic_id
+              topic: q.topics?.title || q.topic_id
             })) });
           }
 
-          // 3. Fetch Profile Stats (XP, Streaks)
-          const { data: profile, error: profileError } = await client
-            .from('profiles')
-            // Do not assume optional columns exist (e.g. `xp_total`).
-            // Local-first dominance: keep XP from local store; only pull streak/activity if available.
-            .select('current_streak, streak_freezes, last_active_date')
-            .eq('id', user.id)
+          // 3. Fetch Profile Stats (Governed via Portal Isolation)
+          const { data: profile, error: profileError } = await Database.governedQuery({
+            table: 'profiles',
+            columns: 'current_streak, streak_freezes, last_active_date',
+            userId,
+          })
             .maybeSingle();
 
-          if (profileError) {
-            logSupabaseError('profiles', 'select', profileError);
-            logError('PROFILE_fetch_failed', profileError);
-          } else if (!profile) {
-            console.warn('[PROFILE] [EMPTY RESULT] profiles', user.id);
-          } else {
+          if (!profileError && profile) {
+            const stats = profile as ProfileStatsRow;
             set({ 
-              studyStreak: profile.current_streak ?? 1, 
-              streakFreezes: profile.streak_freezes ?? 1,
-              lastOpenedDate: profile.last_active_date || new Date().toISOString().split('T')[0]
+              studyStreak: stats.current_streak ?? 1, 
+              streakFreezes: stats.streak_freezes ?? 1,
+              lastOpenedDate: stats.last_active_date || new Date().toISOString().split('T')[0]
             });
           }
         } catch (err) {
@@ -152,7 +167,7 @@ export const useProgressStore = create<ProgressState>()(
       },
 
 
-      awardXP: async (amount, source = 'task') => {
+      awardXP: async (amount, source = 'task', portalType = 'high_school') => {
         const { userId, xpTotal, xpEvents, cloudXPEnabled } = get();
         if (!userId) return;
         if (amount <= 0) return;
@@ -172,23 +187,8 @@ export const useProgressStore = create<ProgressState>()(
         if (!cloudXPEnabled) return;
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          // RLS: requires UPDATE policy restricting rows by auth.uid() = id.
-          const { error } = await client.from('profiles').update({ xp_total: newXpTotal }).eq('id', user.id);
-          if (error) {
-            logSupabaseError('profiles', 'update', error);
-            logError('PROFILE_xp_update_failed', error);
-            // If schema doesn't have xp_total, disable cloud XP updates permanently for this session.
-            const msg = (error as any)?.message ?? '';
-            const code = (error as any)?.code ?? '';
-            if (String(msg).includes('xp_total') || String(code) === '42703') {
-              set({ cloudXPEnabled: false });
-              void logEvent('WARN', 'cloud_xp_disabled_missing_column', { code, msg });
-              return;
-            }
-            set({ pendingProgressSync: true });
-          }
+          // Use Database.governedWrite for XP updates
+          await Database.governedWrite('profiles', { xp_total: newXpTotal }, { portalType });
         } catch (err) {
           logError('PROFILE_xp_update_failed', err);
           set({ pendingProgressSync: true });
@@ -199,32 +199,22 @@ export const useProgressStore = create<ProgressState>()(
         const { userId, topicsStudied } = get();
         if (!userId) return;
 
-        // Use topicId first (UUID passthrough), fall back to topicName for DB lookup
         const currentTopics = topicsStudied[subjectId] || [];
         const completionLabel = topicId || topicName;
         if (currentTopics.includes(completionLabel)) return;
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
           const resolvedTopicId = await resolveTopicIdOrThrow(topicId || topicName, subjectId);
-          const row = {
-            user_id: user.id,
+          const portalType = portalFromSubjectId(subjectId);
+          
+          // ENFORCE GOVERNED WRITE
+          await Database.governedWrite('user_progress', {
             subject_id: subjectId,
-            topic_id: resolvedTopicId,
-            completed_at: new Date().toISOString()
-          };
-          assertRequiredWriteFields(row);
+            topic_id: resolvedTopicId
+          }, {
+            portalType
+          });
 
-          const { error } = await client.from('user_progress').upsert([row], { onConflict: 'user_id,topic_id' });
-          if (error) {
-            logSupabaseError('user_progress', 'upsert', error);
-            logError('PROGRESS_user_progress_insert_failed', error);
-            set({ pendingProgressSync: true });
-            throw error;
-          }
-
-          // Store the resolved UUID so cloud sync and local state are consistent
           set({
             topicsStudied: {
               ...get().topicsStudied,
@@ -233,7 +223,7 @@ export const useProgressStore = create<ProgressState>()(
           });
 
           await get().updateStreak();
-          await get().awardXP(10, 'task');
+          await get().awardXP(10, 'task', portalType);
         } catch (err) {
           logError('PROGRESS_user_progress_insert_failed', err);
           set({ pendingProgressSync: true });
@@ -245,36 +235,28 @@ export const useProgressStore = create<ProgressState>()(
         const { userId } = get();
         if (!userId) return;
 
-        // Topic resolution failures must stop the write path.
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
           const resolvedTopicId = await resolveTopicIdOrThrow(topicId || topic, subjectId);
-          const row = {
-            user_id: user.id,
+          const portalType = portalFromSubjectId(subjectId);
+          
+          // ENFORCE GOVERNED WRITE
+          await Database.governedWrite('quiz_sessions', {
             subject_id: subjectId,
             topic_id: resolvedTopicId,
             score: score,
-            total: total
-          };
-          assertRequiredWriteFields(row);
-
-          const { error } = await client
-            .from('quiz_sessions')
-            .insert([row]);
-          if (error) {
-            logSupabaseError('quiz_sessions', 'insert', error);
-            logError('PROGRESS_quiz_sessions_insert_failed', error);
-            set({ pendingProgressSync: true });
-            throw error;
-          }
+            total: total,
+            date: new Date().toISOString()
+          }, {
+            portalType
+          });
 
           const newScore = { date: new Date().toISOString(), score, total, topic };
           set({ quizScores: [...get().quizScores, newScore] });
 
           const percentage = (score / total) * 100;
-          const xpToAward = percentage >= 80 ? 20 : percentage >= 50 ? 10 : 5;
-          await get().awardXP(xpToAward, 'quiz');
+          const passing = SYSTEM_CONFIG.MASTERY.PASSING_SCORE;
+          const xpToAward = percentage >= passing ? 20 : percentage >= 50 ? 10 : 5;
+          await get().awardXP(xpToAward, 'quiz', portalType);
           await get().updateStreak();
         } catch (err) {
           logError('PROGRESS_quiz_sessions_insert_failed', err);
@@ -287,22 +269,13 @@ export const useProgressStore = create<ProgressState>()(
         const { userId, xpTotal, studyStreak, streakFreezes, lastOpenedDate } = get();
         if (!userId || !get().pendingProgressSync) return;
 
-        console.log('[PROFILE] Syncing pending profile stats...');
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          const { error } = await client.from('profiles').update({
+          await Database.governedWrite('profiles', {
             xp_total: xpTotal,
             current_streak: studyStreak,
             streak_freezes: streakFreezes,
             last_active_date: lastOpenedDate
-          }).eq('id', user.id);
-
-          if (error) {
-            logSupabaseError('profiles', 'update', error);
-            logError('PROFILE_pending_sync_failed', error);
-            return;
-          }
+          }, { portalType: 'high_school' });
           set({ pendingProgressSync: false });
         } catch (err) {
           logError('PROFILE_pending_sync_failed', err);
@@ -310,7 +283,7 @@ export const useProgressStore = create<ProgressState>()(
       },
 
       updateStreak: async () => {
-        const { userId, studyStreak, lastOpenedDate, streakFreezes, xpTotal } = get();
+        const { userId, studyStreak, lastOpenedDate, streakFreezes } = get();
         if (!userId) return;
 
         const today = new Date().toISOString().split('T')[0];
@@ -322,26 +295,18 @@ export const useProgressStore = create<ProgressState>()(
 
         let newStreak = studyStreak;
         let newFreezes = streakFreezes;
-        let awardedXP = 0;
 
         if (diffDays === 1) {
-          // Normal daily progression (Task 2.2)
           newStreak += 1;
-          awardedXP = 5; // Award 5 XP for daily login (Task 2.1)
-          await get().awardXP(awardedXP, 'streak');
+          await get().awardXP(5, 'streak');
         } else if (diffDays > 1) {
-          // Day missed
           if (newFreezes > 0) {
-            // Use Freeze (Task 2.2)
             newFreezes -= 1;
-            // Note: Streak remains same if frozen
           } else {
-            // Reset Streak
             newStreak = 1;
           }
         }
 
-        // Award new freeze every 7 days (Task 2.2)
         if (newStreak > 0 && newStreak % 7 === 0 && newStreak !== studyStreak) {
           newFreezes += 1;
         }
@@ -352,20 +317,12 @@ export const useProgressStore = create<ProgressState>()(
           streakFreezes: newFreezes
         });
 
-        // Sync to Supabase Profiles
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          const { error } = await client.from('profiles').update({
+          await Database.governedWrite('profiles', {
             current_streak: newStreak,
             last_active_date: today,
             streak_freezes: newFreezes
-          }).eq('id', user.id);
-          if (error) {
-            logSupabaseError('profiles', 'update', error);
-            logError('PROFILE_streak_sync_failed', error);
-            set({ pendingProgressSync: true });
-          }
+          }, { portalType: 'high_school' });
         } catch (err) {
           logError('PROFILE_streak_sync_failed', err);
           set({ pendingProgressSync: true });
@@ -384,11 +341,7 @@ export const useProgressStore = create<ProgressState>()(
         }),
 
       getLevel: (xp) => {
-        if (xp >= 1000) return 'Expert';
-        if (xp >= 600) return 'Advanced';
-        if (xp >= 300) return 'Scholar';
-        if (xp >= 100) return 'Explorer';
-        return 'Beginner';
+        return getLevel(xp);
       },
 
       getWeeklyXP: () => {
@@ -410,7 +363,7 @@ export const useProgressStore = create<ProgressState>()(
       }
     }),
     {
-      name: 'easytutor-user-progress-v1', 
+      name: 'easytutor-user-progress-v2', // Bump version for consolidation
       storage: createJSONStorage(() => AsyncStorage),
     }
   )

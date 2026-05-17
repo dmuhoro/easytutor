@@ -1,6 +1,6 @@
 # Current State: EasyTutor
 **Version:** 1.0.0 (Production Stable)
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-05-12
 
 ## Active Milestones
 - [x] Sprint 1: Core Engine Stabilization (Semantic Chunking, Worker Ingestion)
@@ -17,6 +17,8 @@
 - **CI/CD Readiness:** Fully passing Vitest flow suites and zero TypeScript errors.
 
 ## Partially Complete / In Progress
+- **Sprint Omega.2 Database Governance:** Governed database wrappers now exist under `src/infrastructure/database`, retrieval requires explicit portal context, sync/progress writes route through governed writes, and governance audits flag remaining raw Supabase access candidates.
+- **Sprint Omega.3 Learning Orchestration:** The centralized command layer now exists under `src/intelligence`, coordinating runtime context, adaptive pipelines, hybrid AI routing, mastery planning, recommendations, and predictive prefetching.
 - **Voice Tutor:** Voice integration is present but lacks the same level of resilience as the text-based tutor.
 - **Mobile Inference Research:** Currently relying on a localhost Ollama instance; exploration of on-device LLMs (e.g., MediaPipe) is pending.
 - **Self-Directed Roadmaps:** Logic exists but requires more rigorous validation for complex multi-week goals.
@@ -27,6 +29,7 @@
 - **Vector Scaling:** Naive `match_document_chunks` may need HNSW indexing once document counts exceed thousands.
 
 ## Risks
+- **Legacy Raw Supabase Access:** Governance audit currently warns on remaining raw access candidates in older modules; these are now visible migration targets for subsequent Omega.2 units.
 - **Network Dependency:** Some critical features (roadmap generation) still strictly require cloud access.
 - **Device Memory:** Running local embeddings and inference alongside the React Native runtime may stress low-end mobile devices.
 

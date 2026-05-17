@@ -1,14 +1,25 @@
 import { getSupabaseClient } from './supabaseOps';
 import { generateEmbedding } from './embeddings';
 import { rankAndFilterChunks, RetrievalChunk } from './retrieval/ranking';
-import { globalTracer, generateTraceId } from '../observability/tracing/trace';
+import {
+  assertRetrievalContext,
+  buildRetrievalPolicy,
+  GovernedRetrievalContext,
+} from '../src/infrastructure/database';
+
+interface RetrievalRow {
+  content: string;
+  similarity: number;
+  metadata?: Record<string, unknown>;
+}
 
 export const retrieveRelevantChunks = async (
   query: string,
+  context: GovernedRetrievalContext,
   options: { minSimilarity?: number; maxChunks?: number } = {}
 ): Promise<RetrievalChunk[]> => {
-  const traceId = generateTraceId();
-  globalTracer.startSpan(traceId, 'RETRIEVAL', { query });
+  const retrievalContext = assertRetrievalContext(context);
+  const policy = buildRetrievalPolicy(retrievalContext, options);
     
   try {
     const supabase = getSupabaseClient();
@@ -18,8 +29,13 @@ export const retrieveRelevantChunks = async (
       'match_document_chunks',
       {
         query_embedding: embedding,
-        match_count: 15, // Increase pool for better ranking
-        min_similarity: options.minSimilarity ?? 0.0
+        match_count: Math.max(policy.matchCount, 15),
+        min_similarity: policy.minSimilarity,
+        portal_type: policy.portalType,
+        taxonomy_scope: policy.taxonomyScope,
+        curriculum_scope: policy.curriculumScope,
+        school_scope: policy.schoolScope,
+        vector_namespace: policy.vectorNamespace
       }
     );
 
@@ -27,18 +43,17 @@ export const retrieveRelevantChunks = async (
       throw error;
     }
 
-    const rawChunks: RetrievalChunk[] = (data || []).map((row: any) => ({
+    const rawRows = (data ?? []) as RetrievalRow[];
+    const rawChunks: RetrievalChunk[] = rawRows.map((row) => ({
       content: row.content,
       similarity: row.similarity,
       metadata: row.metadata
     }));
 
     const results = rankAndFilterChunks(rawChunks, options.minSimilarity, options.maxChunks);
-    globalTracer.endSpan(traceId, 'RETRIEVAL');
     return results;
 
   } catch (err) {
-    globalTracer.endSpan(traceId, 'RETRIEVAL');
     console.error('[RETRIEVAL ERROR]', err);
     return [];
   }

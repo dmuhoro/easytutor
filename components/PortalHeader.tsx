@@ -6,24 +6,25 @@ import { useAuthStore } from '../store/authStore';
 import { useRoadmapStore } from '../store/roadmapStore';
 import { useProgressStore } from '../store/progressStore';
 import { GlassView } from './ui/GlassView';
-import { COLORS } from '../lib/theme';
+import { SYSTEM_CONFIG } from '../src/config/registry';
+import { PortalType } from '../src/types/canonical';
+import { Telemetry } from '../src/observability/telemetry';
 
 export function PortalHeader() {
   const router = useRouter();
-  const { user } = useAuthStore();
   const { learningMode } = useRoadmapStore();
   const { studyStreak, xpTotal } = useProgressStore();
 
-  const getPortalColor = () => {
-    if (learningMode === 'high_school') return '#3b82f6';
-    if (learningMode === 'university') return '#a855f7';
-    return '#22c55e'; // self_directed
-  };
+  const mode = (learningMode || 'self_directed') as PortalType;
+  const config = SYSTEM_CONFIG.PORTALS[mode];
 
-  const getPortalName = () => {
-    if (learningMode === 'high_school') return 'High School';
-    if (learningMode === 'university') return 'University';
-    return 'Explorer';
+  const handleProfilePress = () => {
+    Telemetry.emit({
+      event: 'PORTAL_CONTEXT_RESOLVED',
+      source: 'ui',
+      payload: { mode }
+    });
+    router.push('/profile');
   };
 
   return (
@@ -33,10 +34,10 @@ export function PortalHeader() {
         onPress={() => router.push('/settings')}
         activeOpacity={0.7}
       >
-        <GlassView className="px-3 py-2 flex-row items-center" borderColor={getPortalColor() + '40'}>
-          <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: getPortalColor() }} />
+        <GlassView className="px-3 py-2 flex-row items-center" borderColor={config.theme_color + '40'}>
+          <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: config.theme_color }} />
           <Text className="text-white font-syne font-bold text-[10px] uppercase tracking-widest">
-            {getPortalName()}
+            {mode.replace('_', ' ')}
           </Text>
         </GlassView>
       </TouchableOpacity>
@@ -55,7 +56,7 @@ export function PortalHeader() {
 
       {/* Profile Toggle (Right) */}
       <TouchableOpacity 
-        onPress={() => router.push('/settings')}
+        onPress={handleProfilePress}
         activeOpacity={0.7}
         className="w-10 h-10 rounded-full bg-brand-500 items-center justify-center border-2 border-white/20 shadow-lg"
       >

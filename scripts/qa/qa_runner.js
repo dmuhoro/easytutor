@@ -15,6 +15,7 @@ function runStep(name, command) {
 const steps = [
   { name: 'TypeScript Validation', command: 'npx tsc --noEmit' },
   { name: 'Architecture Compliance', command: 'node scripts/architecture/validate_boundaries.js' },
+  { name: 'Governance Audit', command: 'node scripts/architecture/governance_audit.js' },
   { name: 'Flow Tests', command: 'npm run test:flows' }
 ];
 

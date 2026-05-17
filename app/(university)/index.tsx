@@ -5,31 +5,29 @@ import { useRouter } from "expo-router";
 import { SubjectGrid, SubjectData } from "../../components/SubjectGrid";
 import { useRoadmapStore } from "../../store/roadmapStore";
 import { Ionicons } from "@expo/vector-icons";
-import { SUBJECTS } from "../../lib/subjects";
-
+import { CANONICAL_CURRICULUM } from "../../src/knowledge/taxonomies/curriculum";
 import { PortalHeader } from "../../components/PortalHeader";
 
 export default function UniversityFaculties() {
   const router = useRouter();
   const { setSubjectId, roadmaps, fetchSavedRoadmaps } = useRoadmapStore();
-  const [subjects, setSubjects] = useState<SubjectData[]>([]);
+  const [schools, setSchools] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchFaculties = async () => {
+  const fetchSchools = async () => {
     try {
-      // Local-first: university subjects are sourced from bundled content, not Supabase.
-      const mapped: SubjectData[] = SUBJECTS.map((s) => ({
+      // Use Canonical Curriculum for University Realism
+      const data = CANONICAL_CURRICULUM.UNIVERSITY.schools.map(s => ({
         id: s.id,
-        name: s.name,
-        icon: s.icon,
-        level: 'university',
-        description: `${s.topics.length} Topics`,
+        name: s.title,
+        icon: '🎓',
+        description: `${s.departments.length} Departments`
       }));
-      setSubjects(mapped);
+      setSchools(data);
     } catch (error) {
-      console.error('[SAFE_ERROR] [SUBJECTS] fetching university subjects failed', error);
-      setSubjects([]);
+      console.error('[SAFE_ERROR] [SCHOOLS] fetching university schools failed', error);
+      setSchools([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -37,15 +35,14 @@ export default function UniversityFaculties() {
   };
 
   useEffect(() => {
-    fetchFaculties();
+    fetchSchools();
     fetchSavedRoadmaps();
   }, []);
 
-  const handleFacultyPress = (subject: SubjectData) => {
-    setSubjectId(subject.id);
+  const handleSchoolPress = (school: any) => {
     router.push({
-      pathname: '/(university)/[course]/roadmap',
-      params: { course: subject.id, topic: subject.name } // Using subject name as topic for roadmap start
+      pathname: '/(university)/school-details',
+      params: { schoolId: school.id, title: school.name }
     });
   };
 
@@ -55,14 +52,14 @@ export default function UniversityFaculties() {
       <ScrollView 
         className="flex-1 px-5 pt-4"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFaculties(); }} tintColor="#a855f7" />
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchSchools(); }} tintColor="#a855f7" />
         }
       >
         <View className="mb-10">
           <Text className="text-[#a855f7] font-bold font-syne text-sm uppercase tracking-widest mb-2">Academic Excellence</Text>
           <Text className="text-white text-4xl font-bold font-syne mb-4">University Master</Text>
           <Text className="text-[#8a8fa3] text-lg font-dmsans leading-7">
-            Prepare for your exams at degree level with scholarly depth and academic rigour.
+            Navigate through Schools and Departments to access degree-level academic rigour.
           </Text>
         </View>
 
@@ -72,8 +69,8 @@ export default function UniversityFaculties() {
           </View>
         ) : (
           <View>
-             <Text className="text-white text-2xl font-bold font-syne mb-6">Select Your Faculty</Text>
-             <SubjectGrid subjects={subjects} onPress={handleFacultyPress} />
+             <Text className="text-white text-2xl font-bold font-syne mb-6">Select Your School</Text>
+             <SubjectGrid subjects={schools} onPress={handleSchoolPress} />
           </View>
         )}
 

@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View, Text, TouchableOpacity, SafeAreaView, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { generateQuizQuestion } from "../../lib/api";
 import { SUBJECTS } from "../../lib/subjects";
 import { useProgressStore } from "../../store/progressStore";
 import { useAuthStore } from "../../store/authStore";
+import { useRoadmapStore } from "../../store/roadmapStore";
 import { useNetInfo } from "@react-native-community/netinfo";
-import { getCachedQuizQuestions } from "../../lib/cache";
 import * as Haptics from '../../lib/haptics';
 import { trackEvent } from "../../lib/analytics";
 import { FeedbackModal } from "../../components/FeedbackModal";
+import { CanonicalQuizRenderer, QuizQuestion } from "../../components/CanonicalQuizRenderer";
+import { useGovernedQuiz } from "../../hooks/useOrchestration";
 
 interface Question {
   question: string;

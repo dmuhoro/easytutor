@@ -1,7 +1,7 @@
 export interface RetrievalChunk {
   content: string;
   similarity: number;
-  metadata: any;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -26,8 +26,10 @@ export const rankAndFilterChunks = (
   // 3. Sort by original document order if metadata.index is present
   // This preserves semantic continuity when chunks are from the same document.
   filtered.sort((a, b) => {
-    if (a.metadata?.index !== undefined && b.metadata?.index !== undefined) {
-      return a.metadata.index - b.metadata.index;
+    const leftIndex = typeof a.metadata?.index === 'number' ? a.metadata.index : null;
+    const rightIndex = typeof b.metadata?.index === 'number' ? b.metadata.index : null;
+    if (leftIndex !== null && rightIndex !== null) {
+      return leftIndex - rightIndex;
     }
     return b.similarity - a.similarity;
   });

@@ -13,6 +13,7 @@
     "test:flows": "vitest run",
     "build": "npx expo export --platform web",
     "audit:full": "./scripts/full-audit.sh",
+    "audit:governance": "node scripts/architecture/governance_audit.js",
     "dep:check": "madge --circular --extensions ts,tsx .",
     "dep:graph": "madge --image dependency-graph.png --extensions ts,tsx .",
     "doctor": "expo-doctor"

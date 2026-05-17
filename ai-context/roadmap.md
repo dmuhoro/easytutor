@@ -6,8 +6,12 @@
 - [x] Add Network Safety Utilities (Retries, Timeouts, Deduplication).
 - [x] Fix TypeScript build errors and failing tests.
 - [x] Finalize Semantic RAG implementation.
+- [x] Establish executable database governance wrappers and retrieval context contracts.
+- [x] Establish Learning Orchestration Engine command layer for runtime context, pipelines, AI routing, mastery coordination, and prefetch.
 
 ## Phase 2: Beta Launch & Performance (Immediate)
+- **Omega.2 Raw Access Migration:** Convert remaining governance-audit raw Supabase candidates to governed query/write services.
+- **Omega.3 UI Integration:** Move screen-level learning flow assembly behind `learningOrchestrator` entry points.
 - **Batch Ingestion Optimization:** Move document processing to a background worker or optimize chunking loops.
 - **Deterministic Subject IDs:** Migration to resolve data consistency issues across portals.
 - **Advanced Mastery Dashboard:** Visualizing progress with mastery distribution curves.
