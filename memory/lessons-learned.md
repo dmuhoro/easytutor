@@ -142,7 +142,18 @@
 - Cross-tenant intelligence should remain aggregated and anonymized to preserve tenant-safe isolation while still generating sector-level optimization insights.
 - Long-term entrenchment becomes credible when institutional memory snapshots, workflow persistence, and leadership-transition continuity are treated as first-class durability metrics.
 
-# 2026-05-19 — Sprint Ω.31 Reality Pressure + Adaptive Survival Infrastructure (COMPLETED)
+# 2026-05-19 — Sprint Ω.32 Live Economic Operations + System Governance Intelligence (COMPLETED)
+- **Operational Governance Requires Multi-Layered Risk Assessment:** Simple compliance scoring (0..1) is insufficient; tenant risk levels (low/medium/high) should drive control-level routing (autonomous/monitored/manual) to prevent governance oversimplification.
+- **Economic Health is a Composite Signal:** Revenue health and resource efficiency are orthogonal dimensions. Combining them in a single score (50/50 weight) provides balanced economic visibility but loses nuance; separate tracking enables targeted interventions.
+- **Deployment Safety Cannot Be Binary:** Release approval gates should require BOTH safety score AND migration compatibility thresholds (e.g., ≥0.85 AND ≥0.8) to prevent "passing" on one dimension while failing on another.
+- **Audit Trail Integrity Depends on Deterministic Event IDs:** Using `Date.now()` for event timestamps is collision-prone. Audit events should include monotonic sequence numbers or explicit ordering guarantees to prevent replay or reordering attacks.
+- **Cross-Tenant Incident Analysis Must Preserve Isolation:** Correlating incidents across tenants should use aggregate metrics (frequency per tenant) rather than merged incident lists to prevent privacy leaks through incident timing patterns.
+- **Governance Policy Adaptation Needs Rate Limiting:** Autonomous governance evolution can create cascading policy changes if constraints adapt on every signal. Introducing an `adaptiveWeight` factor (0..1) with explicit apply-rate limiting prevents runaway adaptation.
+- **Operational Control Surfaces Should Be Explicit States:** Control levels (autonomous/monitored/manual) must map deterministically to operational state + compliance score to ensure operators understand why they have manual override authority.
+- **Economic Pressure Thresholds Are Domain-Specific:** Generic thresholds (>0.75 = high) fail under domain variation. Pressure assessment should accept configurable thresholds per tenant tier to support heterogeneous operational environments.
+- **Rollback Readiness Must Be Pre-Validated:** Computing rollback strategies at incident-time is risky. Deployment orchestration should pre-validate rollback paths and assign readiness scores during staging, not during production failures.
+- **Governance Compliance Scoring Must Be Auditable:** Every compliance score change should be traceable to explicit policy decisions. Opaque heuristics make institutional accountability impossible; deterministic formulas with logged inputs enable forensic analysis.
+
 - **Behavioral Telemetry as Leading Indicator:** Tracking hesitation counts and dropoff rates enables churn prediction before customers actually leave. This requires continuous low-latency telemetry ingestion rather than periodic batch analysis.
 - **Failure Pattern Learning Requires Historical Depth:** The `FailurePatternLearningRuntime` needs at least 3–5 recurrences of an incident type to confidently label it as "recurring." Initial false positives are inevitable but should be tuned by incident severity weighting.
 - **Offline-First Adaptation is Non-Negotiable:** In African deployment contexts, assuming internet connectivity exists is a critical failure mode. The `OfflineStressAdaptationEngine` must be the default execution mode, with online as an optimization.
