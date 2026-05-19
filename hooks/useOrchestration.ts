@@ -94,6 +94,26 @@ export function useAdaptiveLesson() {
   return { generateLesson, lesson, loading };
 }
 
+export function useRoadmapGeneration() {
+  const { buildContextInput } = useRuntimeContext();
+  const [loading, setLoading] = useState(false);
+  const [roadmap, setRoadmap] = useState<OrchestrationResult | null>(null);
+
+  const generateRoadmap = useCallback(async (overrides?: Partial<RuntimeContextInput>) => {
+    setLoading(true);
+    try {
+      const input = buildContextInput(overrides);
+      const result = await learningOrchestrator.generateRoadmap(input);
+      setRoadmap(result);
+      return result;
+    } finally {
+      setLoading(false);
+    }
+  }, [buildContextInput]);
+
+  return { generateRoadmap, roadmap, loading };
+}
+
 export function useGovernedQuiz() {
   const { buildContextInput } = useRuntimeContext();
   const [loading, setLoading] = useState(false);
@@ -112,6 +132,26 @@ export function useGovernedQuiz() {
   }, [buildContextInput]);
 
   return { assembleQuiz, quiz, loading };
+}
+
+export function useQuizQuestionGeneration() {
+  const { buildContextInput } = useRuntimeContext();
+  const [loading, setLoading] = useState(false);
+  const [question, setQuestion] = useState<OrchestrationResult | null>(null);
+
+  const generateQuizQuestion = useCallback(async (overrides?: Partial<RuntimeContextInput>) => {
+    setLoading(true);
+    try {
+      const input = buildContextInput(overrides);
+      const result = await learningOrchestrator.generateQuizQuestion(input);
+      setQuestion(result);
+      return result;
+    } finally {
+      setLoading(false);
+    }
+  }, [buildContextInput]);
+
+  return { generateQuizQuestion, question, loading };
 }
 
 export function useMasteryProgress() {
@@ -146,6 +186,43 @@ export function useRoadmapFlow() {
   }, [buildContextInput]);
 
   return { progressRoadmap, loading };
+}
+
+export function useProgressUpdates() {
+  const { buildContextInput } = useRuntimeContext();
+  const [updating, setUpdating] = useState(false);
+
+  const markTopicComplete = useCallback(async (overrides?: Partial<RuntimeContextInput>) => {
+    setUpdating(true);
+    try {
+      const input = buildContextInput(overrides);
+      await learningOrchestrator.markTopicComplete(input);
+    } finally {
+      setUpdating(false);
+    }
+  }, [buildContextInput]);
+
+  const recordQuizScore = useCallback(async (score: number, total: number, overrides?: Partial<RuntimeContextInput>) => {
+    setUpdating(true);
+    try {
+      const input = buildContextInput(overrides);
+      await learningOrchestrator.recordQuizScore({ ...input, score, total });
+    } finally {
+      setUpdating(false);
+    }
+  }, [buildContextInput]);
+
+  const saveRoadmap = useCallback(async (roadmapData: any, overrides?: Partial<RuntimeContextInput>) => {
+    setUpdating(true);
+    try {
+      const input = buildContextInput(overrides);
+      await learningOrchestrator.saveRoadmap({ ...input, roadmapData });
+    } finally {
+      setUpdating(false);
+    }
+  }, [buildContextInput]);
+
+  return { markTopicComplete, recordQuizScore, saveRoadmap, updating };
 }
 
 export function usePrefetchedContent() {

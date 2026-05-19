@@ -257,9 +257,13 @@ export const TAXONOMIES: TaxonomyRegistry = {
 
 /**
  * Validates if a canonical ID matches the authoritative taxonomy.
+ * Handles both simple IDs (HS-..., UNI-..., KE-...) and CHUNK IDs (CHUNK-HS-..., CHUNK-UNI-..., etc.)
  */
 export const validateCanonicalID = (id: string, portal: PortalType): boolean => {
-  const prefix = id.split('-')[0];
+  const parts = id.split('-');
+  // For CHUNK IDs, check the second element; otherwise check the first
+  const prefix = parts[0] === 'CHUNK' && parts.length > 1 ? parts[1] : parts[0];
+  
   switch (portal) {
     case 'high_school': return prefix === 'HS';
     case 'university': return prefix === 'UNI';

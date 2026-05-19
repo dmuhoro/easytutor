@@ -4,8 +4,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProgressStore } from './progressStore';
 import { trackEvent } from '../lib/analytics';
-import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from '../lib/supabaseOps';
+import { Database } from '../src/infrastructure/database';
 import { resolveTopicIdOrThrow } from '../lib/resolveTopicId';
+import { PortalType } from '../src/types/canonical';
+import { learningOrchestrator } from '../src/intelligence';
 
 export interface RoadmapDay {
   day: number;
@@ -27,13 +29,18 @@ export interface CustomRoadmap {
 
 export type LearningMode = 'high_school' | 'university' | 'self_directed';
 
+const portalFromMode = (mode: LearningMode): PortalType => {
+  if (mode === 'university') return 'university';
+  if (mode === 'self_directed') return 'knowledge_explorer';
+  return 'high_school';
+};
+
 interface RoadmapState {
   userId: string | null;
   roadmaps: CustomRoadmap[];
   // topicId -> dayNumber -> taskArray
   checkedTasks: Record<string, Record<number, string[]>>;
   
-  // New multi-portal fields (Section 7)
   learningMode: LearningMode | null;
   onboardingComplete: boolean;
   subjectId: string | null;
@@ -46,14 +53,12 @@ interface RoadmapState {
   removeRoadmap: (roadmapId: string) => void;
   clearRoadmaps: () => void;
   
-  // New setters
   setLearningMode: (mode: LearningMode) => void;
   setOnboardingComplete: (val: boolean) => void;
   setSubjectId: (id: string | null) => void;
   setTopicId: (id: string | null) => void;
   markRoadmapOpened: (roadmapId: string) => void;
   
-  // Progress Methods
   getRoadmapProgress: (roadmapId: string) => number;
   saveRoadmap: (roadmap: CustomRoadmap, mode: LearningMode) => Promise<void>;
   fetchCachedRoadmap: (subjectId: string, topicId: string) => Promise<CustomRoadmap | null>;
@@ -125,7 +130,6 @@ export const useRoadmapStore = create<RoadmapState>()(
           const isChecked = dayTasks.includes(task);
           
           if (!isChecked) {
-            // Award 5 XP for roadmap task completion
             useProgressStore.getState().awardXP(5, 'task');
             trackEvent('task_completed', {
               user_id: state.userId,
@@ -146,7 +150,6 @@ export const useRoadmapStore = create<RoadmapState>()(
             }
           };
 
-          // Update completionStatus in the roadmap object
           const roadmap = state.roadmaps.find(r => r.id === roadmapId);
           let newStatus = roadmap?.completionStatus || 'not_started';
           
@@ -159,7 +162,6 @@ export const useRoadmapStore = create<RoadmapState>()(
             else newStatus = 'in_progress';
           }
 
-          // Sync to Cloud
           void get().saveTaskProgressToCloud(roadmapId).catch((err) => {
             logError('ROADMAP_task_sync_trigger_failed', err);
           });
@@ -181,7 +183,6 @@ export const useRoadmapStore = create<RoadmapState>()(
           };
         });
         
-        // Background sync to Supabase (Requirement 2 & 3)
         void get().saveTaskProgressToCloud(roadmapId).catch((err) => {
           logError('ROADMAP_remove_sync_trigger_failed', err);
         });
@@ -213,31 +214,26 @@ export const useRoadmapStore = create<RoadmapState>()(
           throw new Error('[FATAL] topic_id resolution failed');
         }
 
-        // Ensure in local state
         if (!get().roadmaps.find(r => r.id === roadmap.id)) {
           get().addRoadmap(roadmap);
         }
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
           const resolvedTopicId = await resolveTopicIdOrThrow(
             topicId || roadmap.topic,
             roadmap.subjectId
           );
-          const { error } = await client.from('cached_roadmaps').upsert({
-            user_id: user.id,
+          
+          // ROUTE THROUGH ORCHESTRATOR
+          await learningOrchestrator.saveRoadmap({
+            user_id: userId,
+            portal_type: portalFromMode(mode),
+            subject_id: roadmap.subjectId,
             topic_id: resolvedTopicId,
-            subject_id: roadmap.subjectId || null,
-            roadmap_json: roadmap,
-            learning_mode: mode,
-            created_at: new Date().toISOString()
-          }, { onConflict: 'user_id,topic_id' });
-          if (error) {
-            logSupabaseError('cached_roadmaps', 'upsert', error);
-            logError('ROADMAP_saveRoadmap_upsert_failed', error);
-            throw error;
-          }
+            learning_goal: `Roadmap for ${resolvedTopicId} in ${roadmap.subjectId}`,
+            mastery_state: { score: 0, attempts: 0, weak_points: [] },
+            roadmapData: roadmap
+          });
         } catch (err) {
           logError('ROADMAP_saveRoadmap_upsert_failed', err);
           throw err;
@@ -245,41 +241,36 @@ export const useRoadmapStore = create<RoadmapState>()(
       },
 
       fetchCachedRoadmap: async (subjectId, topicId) => {
-        const { userId } = get();
+        const { userId, learningMode } = get();
         if (!userId) return null;
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          const { data, error } = await client
-            .from('cached_roadmaps')
-            .select('*')
-            .eq('user_id', user.id)
+          const { data, error } = await Database.governedQuery({
+            table: 'cached_roadmaps',
+            columns: '*',
+            userId,
+          })
             .eq('subject_id', subjectId)
             .eq('topic_id', topicId)
             .maybeSingle();
 
           if (error) {
-            logSupabaseError('cached_roadmaps', 'select', error);
             logError('ROADMAP_fetchCachedRoadmap_failed', error);
             return null;
           }
-          if (!data) {
-            console.warn('[ROADMAP] [EMPTY RESULT] cached_roadmaps', { userId, subjectId, topicId });
-            return null;
-          }
+          if (!data) return null;
 
-          const cached = data.roadmap_json;
+          const item = data as any;
+          const cached = item.roadmap_json;
           const roadmap: CustomRoadmap = {
-            id: data.id,
+            id: item.id,
             topic: cached.topic || cached.title,
             title: cached.title,
             days: cached.days,
-            learningMode: data.learning_mode,
-            createdAt: data.created_at
+            learningMode: item.learning_mode,
+            createdAt: item.created_at
           };
 
-          // Add to local state if not present
           if (!get().roadmaps.find(r => r.topic === roadmap.topic)) {
             get().addRoadmap(roadmap);
           }
@@ -296,26 +287,19 @@ export const useRoadmapStore = create<RoadmapState>()(
         if (!userId) return;
 
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          const { data, error } = await client
-            .from('cached_roadmaps')
-            .select('*')
-            .eq('user_id', user.id)
+          const { data, error } = await Database.governedQuery({
+            table: 'cached_roadmaps',
+            columns: '*',
+            userId,
+          })
             .order('created_at', { ascending: false });
 
           if (error) {
-            logSupabaseError('cached_roadmaps', 'select', error);
             logError('ROADMAP_fetchSavedRoadmaps_failed', error);
-            // Local-first fallback: keep whatever is already in local storage.
             return;
           }
-          if (!data || data.length === 0) {
-            console.warn('[ROADMAP] [EMPTY RESULT] cached_roadmaps', userId);
-            return;
-          }
-
-          const savedRoadmaps: CustomRoadmap[] = (data || []).map(item => ({
+          
+          const savedRoadmaps: CustomRoadmap[] = ((data as any[]) || []).map(item => ({
             id: item.id,
             topic: item.roadmap_json.topic || item.roadmap_json.title,
             title: item.roadmap_json.title,
@@ -330,37 +314,27 @@ export const useRoadmapStore = create<RoadmapState>()(
           set({ roadmaps: savedRoadmaps });
         } catch (err) {
           logError('ROADMAP_fetchSavedRoadmaps_failed', err);
-          // Local-first fallback: keep local roadmaps.
         }
       },
 
       saveTaskProgressToCloud: async (roadmapId) => {
-        const { userId, checkedTasks, roadmaps } = get();
+        const { userId, checkedTasks, roadmaps, learningMode } = get();
         if (!userId) return;
 
         const roadmap = roadmaps.find(r => r.id === roadmapId);
         const tasks = checkedTasks[roadmapId] || {};
         
         try {
-          const client = getSupabaseClient();
-          const user = await getAuthenticatedUser();
-          const { error } = await client.from('cached_roadmaps').update({
+          await Database.governedWrite('cached_roadmaps', {
             checked_tasks: tasks,
             last_opened_at: roadmap?.lastOpenedAt,
             completion_status: roadmap?.completionStatus
-          }).eq('id', roadmapId).eq('user_id', user.id);
-
-          if (error) {
-            logSupabaseError('cached_roadmaps', 'update', error);
-            logError('ROADMAP_Cloud_sync_failed,_queueing', error);
-            const currentQueue = get().pendingTaskSyncs;
-            if (!currentQueue.includes(roadmapId)) {
-              set({ pendingTaskSyncs: [...currentQueue, roadmapId] });
-            }
-          } else {
-            // Successfully synced, remove from queue
-            set({ pendingTaskSyncs: get().pendingTaskSyncs.filter(id => id !== roadmapId) });
-          }
+          }, {
+            portalType: portalFromMode(learningMode || 'high_school'),
+            matchFields: { id: roadmapId, user_id: userId }
+          });
+          
+          set({ pendingTaskSyncs: get().pendingTaskSyncs.filter(id => id !== roadmapId) });
         } catch (err) {
           logError('ROADMAP_Cloud_sync_failed,_queueing', err);
           const currentQueue = get().pendingTaskSyncs;
@@ -374,7 +348,6 @@ export const useRoadmapStore = create<RoadmapState>()(
         const queue = get().pendingTaskSyncs;
         if (queue.length === 0) return;
         
-        console.log(`[ROADMAP] Syncing ${queue.length} pending roadmap updates...`);
         for (const id of queue) {
           try {
             await get().saveTaskProgressToCloud(id);
@@ -390,3 +363,4 @@ export const useRoadmapStore = create<RoadmapState>()(
     }
   )
 );
+

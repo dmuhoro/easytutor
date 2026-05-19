@@ -32,6 +32,7 @@ export interface CanonicalContentNode {
   retrieval_metadata: RetrievalMetadata;
   difficulty_level: 'beginner' | 'intermediate' | 'advanced' | 'expert';
   mastery_weight: number;
+  retrieval_priority?: number;
   vector_namespace: string;
 }
 
@@ -95,21 +96,7 @@ export interface RetrievalContext {
  * OBSERVABILITY & TELEMETRY
  */
 
-export type TelemetryEventType = 
-  | 'CONTENT_INGESTED'
-  | 'QUIZ_COMPLETED'
-  | 'MASTERY_UPDATED'
-  | 'RETRIEVAL_EXECUTED'
-  | 'CACHE_HIT'
-  | 'AI_ROUTED_LOCAL'
-  | 'AI_ROUTED_CLOUD'
-  | 'PORTAL_CONTEXT_RESOLVED'
-  | 'PIPELINE_EXECUTED'
-  | 'LESSON_GENERATED'
-  | 'QUIZ_ASSEMBLED'
-  | 'AI_ROUTED'
-  | 'PREFETCH_COMPLETED'
-  | 'OFFLINE_FALLBACK';
+export type TelemetryEventType = string;
 
 export interface TelemetryEvent {
   event_type: TelemetryEventType;
@@ -120,6 +107,23 @@ export interface TelemetryEvent {
   canonical_id?: string;
   latency?: number;
   operation_type?: string;
-  source_layer: 'ui' | 'portal' | 'intelligence' | 'knowledge' | 'infrastructure' | 'core';
+  source_layer:
+    | 'ui'
+    | 'portal'
+    | 'intelligence'
+    | 'knowledge'
+    | 'infrastructure'
+    | 'core'
+    | 'runtime'
+    | 'agent'
+    | 'lifecycle'
+    | 'reasoning'
+    | 'execution'
+    | 'healing'
+    | 'memory'
+    | 'autonomy'
+    | 'multiagent'
+    | 'orchestrator'
+    | 'platform';
   payload?: Record<string, unknown>;
 }

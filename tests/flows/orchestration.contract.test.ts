@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { LearningOrchestrator, createRuntimeContext } from '../../src/intelligence';
 import { HybridInferenceRouter } from '../../src/intelligence/routing/hybridInferenceRouter';
 import { LocalLLMRouter } from '../../src/intelligence/routing/localLLMRouter';
@@ -20,6 +20,8 @@ vi.mock('../../lib/cloud', () => ({
   generateCloudResponse: vi.fn(async () => 'Cloud generated explanation'),
 }));
 
+import { useRoadmapStore } from '../../store/roadmapStore';
+
 const baseInput = {
   user_id: '11111111-1111-4111-8111-111111111111',
   portal_type: 'high_school' as const,
@@ -35,6 +37,11 @@ const baseInput = {
 };
 
 describe('learning orchestration contracts', () => {
+  beforeEach(() => {
+    useRoadmapStore.getState().setLearningMode('high_school');
+    useRoadmapStore.getState().setUserId(baseInput.user_id);
+  });
+
   it('creates canonical runtime context with governed retrieval policy', () => {
     const context = createRuntimeContext(baseInput);
 

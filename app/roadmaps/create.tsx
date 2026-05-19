@@ -3,13 +3,14 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator,
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { generateStudyRoadmap } from "../../lib/api";
 import { useRoadmapStore } from "../../store/roadmapStore";
 import * as Haptics from '../../lib/haptics';
+import { useRoadmapGeneration } from "../../hooks/useOrchestration";
 
 export default function CreateRoadmap() {
   const router = useRouter();
   const { addRoadmap } = useRoadmapStore();
+  const { generateRoadmap, loading: generating } = useRoadmapGeneration();
   const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,20 +21,27 @@ export default function CreateRoadmap() {
     Haptics.impactAsync('medium');
 
     try {
-      const res = await generateStudyRoadmap(topic.trim());
-      if (res.success && res.data) {
+      const result = await generateRoadmap({
+        subject_id: 'self_directed',
+        topic_id: topic.trim(),
+        learning_goal: `Create a study roadmap for ${topic.trim()}`,
+        mastery_state: { score: 0, attempts: 0, weak_points: [] }
+      });
+
+      if (result?.pipeline?.output) {
+        const roadmapData = result.pipeline.output as any;
         const newRoadmap = {
           id: Date.now().toString(),
           topic: topic.trim(),
-          title: res.data.title,
-          days: res.data.days,
+          title: roadmapData.title || topic.trim(),
+          days: roadmapData.days || [],
           createdAt: new Date().toISOString()
         };
         addRoadmap(newRoadmap);
         Haptics.notificationAsync('success');
         router.replace({ pathname: `/roadmaps/${newRoadmap.id}` });
       } else {
-        Alert.alert("Error", res.error || "Failed to generate roadmap.");
+        Alert.alert("Error", "Failed to generate roadmap.");
       }
     } catch (err) {
       Alert.alert("Error", "Something went wrong. Please try again.");
@@ -81,9 +89,9 @@ export default function CreateRoadmap() {
             <TouchableOpacity 
               className={`py-5 rounded-2xl flex-row items-center justify-center ${topic.trim() ? 'bg-[#4f7cff] shadow-lg shadow-[#4f7cff]/30' : 'bg-[#2a2f3d]'}`}
               onPress={handleGenerate}
-              disabled={!topic.trim() || loading}
+              disabled={!topic.trim() || loading || generating}
             >
-              {loading ? (
+              {loading || generating ? (
                 <ActivityIndicator color="white" />
               ) : (
                 <>

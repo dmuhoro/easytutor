@@ -21,9 +21,14 @@ export class Telemetry {
     operationType?: string;
     payload?: Record<string, unknown>;
   }): void {
-    const context = params.portalType && params.userId
-      ? { portal_type: params.portalType, user_context: params.userId }
-      : PortalContextResolver.resolve();
+    let context;
+    try {
+      context = params.portalType && params.userId
+        ? { portal_type: params.portalType, user_context: params.userId }
+        : PortalContextResolver.resolve();
+    } catch (err) {
+      context = { portal_type: params.portalType || 'high_school' as any, user_context: params.userId || 'ANONYMOUS' };
+    }
     
     const event: TelemetryEvent = {
       event_type: params.event,

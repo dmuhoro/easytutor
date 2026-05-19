@@ -9,8 +9,8 @@
     "web": "expo start --web",
     "lint": "npx eslint . --ext .ts,.tsx || true",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:flows": "vitest run",
+    "test": "vitest run -c vitest.config.js",
+    "test:flows": "vitest run -c vitest.config.js",
     "build": "npx expo export --platform web",
     "audit:full": "./scripts/full-audit.sh",
     "audit:governance": "node scripts/architecture/governance_audit.js",
@@ -65,9 +65,12 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@react-native-community/cli": "latest",
     "@testing-library/react-native": "^13.3.3",
     "@types/react": "~19.2.10",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser": "^8.59.3",
     "babel-preset-expo": "~55.0.8",
     "cross-fetch": "^3.2.0",
     "dependency-cruiser": "^17.4.0",

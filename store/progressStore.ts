@@ -6,6 +6,7 @@ import { Database } from '../src/infrastructure/database';
 import { SYSTEM_CONFIG } from '../src/config/registry';
 import { PortalType } from '../src/types/canonical';
 import { resolveTopicIdOrThrow } from '../lib/resolveTopicId';
+import { learningOrchestrator } from '../src/intelligence';
 
 export interface QuizScore {
   date: string;
@@ -207,12 +208,14 @@ export const useProgressStore = create<ProgressState>()(
           const resolvedTopicId = await resolveTopicIdOrThrow(topicId || topicName, subjectId);
           const portalType = portalFromSubjectId(subjectId);
           
-          // ENFORCE GOVERNED WRITE
-          await Database.governedWrite('user_progress', {
+          // ROUTE THROUGH ORCHESTRATOR
+          await learningOrchestrator.markTopicComplete({
+            user_id: userId,
+            portal_type: portalType,
             subject_id: subjectId,
-            topic_id: resolvedTopicId
-          }, {
-            portalType
+            topic_id: resolvedTopicId,
+            learning_goal: `Mastery of ${resolvedTopicId} in ${subjectId}`,
+            mastery_state: { score: 100, attempts: 1, weak_points: [] }
           });
 
           set({
@@ -239,15 +242,16 @@ export const useProgressStore = create<ProgressState>()(
           const resolvedTopicId = await resolveTopicIdOrThrow(topicId || topic, subjectId);
           const portalType = portalFromSubjectId(subjectId);
           
-          // ENFORCE GOVERNED WRITE
-          await Database.governedWrite('quiz_sessions', {
+          // ROUTE THROUGH ORCHESTRATOR
+          await learningOrchestrator.recordQuizScore({
+            user_id: userId,
+            portal_type: portalType,
             subject_id: subjectId,
             topic_id: resolvedTopicId,
-            score: score,
-            total: total,
-            date: new Date().toISOString()
-          }, {
-            portalType
+            learning_goal: `Quiz mastery of ${resolvedTopicId} in ${subjectId}`,
+            mastery_state: { score: (score / total) * 100, attempts: 1, weak_points: [] },
+            score,
+            total
           });
 
           const newScore = { date: new Date().toISOString(), score, total, topic };

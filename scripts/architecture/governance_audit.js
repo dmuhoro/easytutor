@@ -29,7 +29,7 @@ const warnings = [];
 
 for (const file of requiredFiles) {
   if (!fs.existsSync(path.join(root, file))) {
-    failures.push(`Missing governed database file: /home/daniel-muhoro/workspace/projects/easytutor/README.md`);
+    failures.push(`Missing governed database file: ${file}`);
   }
 }
 

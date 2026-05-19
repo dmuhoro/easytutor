@@ -10,7 +10,35 @@ type TableName =
   | 'cached_roadmaps'
   | 'user_events'
   | 'ai_feedback'
-  | 'user_feedback';
+  | 'user_feedback'
+  | 'knowledge_chunks'
+  | 'business_clients'
+  | 'operational_workflows'
+  | 'operational_tasks'
+  | 'workflow_memory'
+  | 'business_referrals'
+  | 'cluster_nodes'
+  | 'billing_statements'
+  | 'tenant_subscriptions'
+  | 'product_deployments'
+  | 'freelancer_proposals'
+  | 'freelancer_projects'
+  | 'freelancer_deliverables'
+  | 'garage_repair_tickets'
+  | 'garage_inventory'
+  | 'garage_service_history'
+  | 'sales_opportunities'
+  | 'marketing_campaigns'
+  | 'business_sla_timers'
+  | 'user_activity_feed'
+  | 'pilot_organizations'
+  | 'user_activation_states'
+  | 'market_feedback'
+  | 'execution_checkpoints'
+  | 'customers'
+  | 'customer_interactions'
+  | 'service_instances'
+  | 'service_events';
 
 type Db = Record<TableName, Row[]>;
 type Failure = { table: string; action: string; error: Error };
@@ -45,6 +73,13 @@ function createSeedDb(): Db {
         kicd_ref: 'KICD/MAT/001',
       },
       {
+        id: 'HS-MATH',
+        name: 'Mathematics',
+        icon: 'calculator',
+        level: 'high_school',
+        description: 'KCSE Mathematics',
+      },
+      {
         id: 'uni-engineering',
         name: 'Engineering',
         icon: 'hammer',
@@ -67,6 +102,12 @@ function createSeedDb(): Db {
         sort_order: 1,
       },
       {
+        id: 'ALG-001',
+        subject_id: 'HS-MATH',
+        title: 'Linear Equations',
+        sort_order: 1,
+      },
+      {
         id: '33333333-3333-4333-8333-333333333333',
         subject_id: 'uni-engineering',
         title: 'Calculus I',
@@ -85,6 +126,47 @@ function createSeedDb(): Db {
     user_events: [],
     ai_feedback: [],
     user_feedback: [],
+    knowledge_chunks: [
+      {
+        id: 'chunk-1',
+        canonical_id: 'HS-HS-MATH-ALG-001',
+        portal_type: 'high_school',
+        content: 'Algebra context'
+      },
+      {
+        id: 'chunk-tenant-mkt',
+        canonical_id: 'tenant_mkt',
+        portal_type: 'high_school',
+        content: 'Marketing context'
+      }
+    ],
+    business_clients: [],
+    operational_workflows: [],
+    operational_tasks: [],
+    workflow_memory: [],
+    business_referrals: [],
+    cluster_nodes: [],
+    billing_statements: [],
+    tenant_subscriptions: [],
+    product_deployments: [],
+    freelancer_proposals: [],
+    freelancer_projects: [],
+    freelancer_deliverables: [],
+    garage_repair_tickets: [],
+    garage_inventory: [],
+    garage_service_history: [],
+    sales_opportunities: [],
+    marketing_campaigns: [],
+    business_sla_timers: [],
+    user_activity_feed: [],
+    pilot_organizations: [],
+    user_activation_states: [],
+    market_feedback: [],
+    execution_checkpoints: [],
+    customers: [],
+    customer_interactions: [],
+    service_instances: [],
+    service_events: []
   };
 }
 
@@ -230,10 +312,22 @@ class QueryBuilder {
     if (action === 'upsert') {
       for (const row of rows) {
         const conflictIndex = mockSupabase.db[this.table].findIndex((existing) => {
+          // If matchFields are provided, use them strictly
+          const matchFields = (row as any)._matchFields;
+          if (matchFields) {
+            return Object.keys(matchFields).every(key => row[key] === existing[key]);
+          }
+
+          // Fallback to legacy heuristics
           if (row.user_id && row.topic_id && existing.user_id === row.user_id && existing.topic_id === row.topic_id) return true;
+          if (row.tenant_id && row.product_id && existing.tenant_id === row.tenant_id && existing.product_id === row.product_id) return true;
           if (row.id && existing.id === row.id) return true;
           return false;
         });
+        
+        // Clean up internal matchFields before storage
+        if ((row as any)._matchFields) delete (row as any)._matchFields;
+
         if (conflictIndex >= 0) mockSupabase.db[this.table][conflictIndex] = { ...mockSupabase.db[this.table][conflictIndex], ...clone(row) };
         else mockSupabase.db[this.table].push(clone(row));
       }

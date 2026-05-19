@@ -5,8 +5,28 @@ import tsParser from "@typescript-eslint/parser";
 export default [
   js.configs.recommended,
   {
+    files: ["**/*.{js,mjs,cjs}"],
+    languageOptions: {
+      globals: {
+        require: "readonly",
+        module: "readonly",
+        __dirname: "readonly",
+        process: "readonly",
+        exports: "readonly",
+      },
+      parserOptions: {
+        ecmaVersion: "latest",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
+      globals: {
+        process: "readonly",
+        module: "readonly",
+        __dirname: "readonly",
+      },
       parser: tsParser,
       parserOptions: {
         ecmaVersion: "latest",

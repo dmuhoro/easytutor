@@ -6,19 +6,20 @@ import { RoadmapView } from "../../../components/RoadmapView";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoadmapStore } from "../../../store/roadmapStore";
 import { useAuthStore } from "../../../store/authStore";
-import { generateStudyRoadmap } from "../../../lib/api";
 import { trackEvent } from "../../../lib/analytics";
 import * as Haptics from '../../../lib/haptics';
 import { SyncIndicator } from "../../../components/SyncIndicator";
 import { logEvent } from "../../../lib/logEvent";
 import { getAllProgress, getWeakTopics } from "../../../data/knowledgeStore";
 import { isUuid } from "../../../lib/supabaseOps";
+import { useRoadmapGeneration } from "../../../hooks/useOrchestration";
 
 export default function HighSchoolRoadmap() {
   const router = useRouter();
   const { subject, topic, topicId: routeTopicId } = useLocalSearchParams();
   const { user } = useAuthStore();
   const { roadmaps, addRoadmap, checkedTasks, toggleTask, topicId, fetchCachedRoadmap, saveRoadmap } = useRoadmapStore();
+  const { generateRoadmap, loading: generating } = useRoadmapGeneration();
   const activeTopicId = typeof routeTopicId === 'string' ? routeTopicId : topicId;
   
   const [saving, setSaving] = useState(false);
@@ -30,13 +31,13 @@ export default function HighSchoolRoadmap() {
 
   useEffect(() => {
     let interval: any;
-    if (loading) {
+    if (loading || generating) {
       interval = setInterval(() => {
         setStatusIndex((prev) => (prev + 1) % statusMessages.length);
       }, 2000);
     }
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, generating]);
 
   // Check if we already have a roadmap for this topic
   const existingRoadmap = roadmaps.find(r => r.topic === topic);
@@ -65,37 +66,22 @@ export default function HighSchoolRoadmap() {
         }
       }
 
-      // Local intelligence: inject weak/mastered context into generation prompt.
-      let weakFocus: string[] = [];
-      let masteredSkip: string[] = [];
-      try {
-        if (activeTopicId && typeof activeTopicId === 'string') {
-          const [progress, weak] = await Promise.all([
-            getAllProgress(),
-            getWeakTopics(),
-          ]);
-          weakFocus = weak;
-          masteredSkip = Object.values(progress)
-            .filter((p) => p.mastered || (p.score ?? 0) >= 85)
-            .map((p) => p.topicId);
-        }
-      } catch {
-        // ignore (never block roadmap generation)
-      }
-
-      // 3. Generate from AI
-      const res = await generateStudyRoadmap(topic, subject as string, activeTopicId as string, user.id, 2, {
-        context: 'high_school',
-        weakFocus,
-        masteredSkip,
+      // 3. Generate from ORCHESTRATOR
+      const result = await generateRoadmap({
+        subject_id: subject as string,
+        topic_id: activeTopicId as string,
+        learning_goal: `Create a study roadmap for ${topic} in ${subject}`,
+        mastery_state: { score: 0, attempts: 0, weak_points: [] }
       });
-      if (res.success && res.data) {
+
+      if (result?.pipeline?.output) {
+        const roadmapData = result.pipeline.output as any;
         const newRoadmap = {
           id: Date.now().toString(),
           topic: topic,
           subjectId: subject as string,
-          title: res.data.title,
-          days: res.data.days,
+          title: roadmapData.title || topic,
+          days: roadmapData.days || [],
           createdAt: new Date().toISOString(),
           learningMode: 'high_school' as const
         };
@@ -106,11 +92,11 @@ export default function HighSchoolRoadmap() {
           user_id: user.id,
           learning_mode: 'high_school',
           topic,
-          title: res.data.title,
+          title: newRoadmap.title,
           subjectId: subject
         });
       } else {
-        setError(res.error || "Failed to generate roadmap.");
+        setError("Failed to generate roadmap.");
       }
     } catch (err) {
       console.error('[SAFE_ERROR] [ROADMAP] Generation Error:', err);
@@ -180,7 +166,7 @@ export default function HighSchoolRoadmap() {
       </View>
 
       <View className="flex-1 px-5 pt-8">
-        {loading ? (
+        {loading || generating ? (
           <View className="flex-1 px-2">
             <View className="items-center justify-center mb-12 mt-10">
               <View className="w-20 h-20 bg-[#4f7cff]/10 rounded-full items-center justify-center mb-6">

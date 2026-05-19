@@ -9,6 +9,7 @@ export interface GovernedWriteInput {
   userId: string;
   payload: GovernedPayload | readonly GovernedPayload[];
   action?: 'insert' | 'upsert';
+  matchFields?: Record<string, unknown>;
 }
 
 interface WriteResult<T> {
@@ -33,6 +34,7 @@ const stampPayload = (
   payload: GovernedPayload | readonly GovernedPayload[],
   portalType: PortalType,
   userId: string,
+  matchFields?: Record<string, unknown>
 ): GovernedPayload | GovernedPayload[] => {
   const rows = Array.isArray(payload) ? payload : [payload];
   const stamped = rows.map((row) => ({
@@ -40,6 +42,7 @@ const stampPayload = (
     user_id: row.user_id ?? userId,
     portal_type: portalType,
     updated_at: new Date().toISOString(),
+    _matchFields: matchFields
   }));
 
   return Array.isArray(payload) ? stamped : stamped[0];
@@ -52,12 +55,14 @@ export const executeGovernedWrite = async <T>(
   const portalType = assertPortalType(input.portalType);
   assertPayloadOwnership(portalType, input.payload);
 
-  const payload = stampPayload(input.payload, portalType, input.userId);
+  const payload = stampPayload(input.payload, portalType, input.userId, input.matchFields);
   const action = input.action ?? 'upsert';
   const builder = client.from(input.table);
   const mutation = action === 'insert'
     ? builder.insert(payload)
-    : builder.upsert(payload);
+    : builder.upsert(payload, input.matchFields
+      ? { onConflict: Object.keys(input.matchFields).join(',') }
+      : undefined);
   const result = isSelectableMutation<T>(mutation)
     ? await mutation.select().single()
     : await mutation as WriteResult<T>;

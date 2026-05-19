@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, SafeAreaView, ActivityIndicator } from "react-native";
+import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
 import { SUBJECTS } from "../../lib/subjects";
 import { useProgressStore } from "../../store/progressStore";
@@ -10,7 +11,7 @@ import * as Haptics from '../../lib/haptics';
 import { trackEvent } from "../../lib/analytics";
 import { FeedbackModal } from "../../components/FeedbackModal";
 import { CanonicalQuizRenderer, QuizQuestion } from "../../components/CanonicalQuizRenderer";
-import { useGovernedQuiz } from "../../hooks/useOrchestration";
+import { useQuizQuestionGeneration } from "../../hooks/useOrchestration";
 
 interface Question {
   question: string;
@@ -43,6 +44,7 @@ export default function QuizTab() {
   const [currentQuizTopicId, setCurrentQuizTopicId] = useState<string>('');
   const [showFeedback, setShowFeedback] = useState(false);
   const [startTime] = useState(Date.now());
+  const { generateQuizQuestion } = useQuizQuestionGeneration();
 
   useEffect(() => {
     startInitialQuiz();
@@ -74,9 +76,9 @@ export default function QuizTab() {
     setCurrentQuizTopicId(topicId);
     setCurrentQuizTopic(topicName);
 
-    const res = await generateQuizQuestion(subjectName, topicName);
-    if (res.success) {
-      setQuestionData(res.data);
+    const result = await generateQuizQuestion({ subject_id: subjectId, topic_id: topicId });
+    if (result?.pipeline?.output) {
+      setQuestionData(result.pipeline.output as Question);
       if (user?.id) {
         trackEvent('quiz_started', {
           user_id: user.id,
@@ -88,14 +90,14 @@ export default function QuizTab() {
       // Start pre-fetching the SECOND question immediately
       preFetchNext();
     } else {
-      setError(res.error ?? 'Failed to start quiz.');
+      setError('Failed to start quiz.');
       if (user?.id) {
         trackEvent('quiz_generation_failed', {
           user_id: user.id,
           learning_mode: 'unknown',
           subjectName,
           topicName,
-          error: res.error,
+          error: 'No output',
           provider: 'AI'
         });
       }
@@ -107,9 +109,9 @@ export default function QuizTab() {
     if (preFetching || questionIndex + 1 >= TOTAL_QUESTIONS) return;
     setPreFetching(true);
     const { subjectName, topicName } = getRandomTopic();
-    const res = await generateQuizQuestion(subjectName, topicName);
-    if (res.success) {
-      setNextQuestionData(res.data);
+    const result = await generateQuizQuestion({ subject_id: currentQuizSubjectId, topic_id: currentQuizTopicId });
+    if (result?.pipeline?.output) {
+      setNextQuestionData(result.pipeline.output as Question);
     }
     setPreFetching(false);
   };

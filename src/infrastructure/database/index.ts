@@ -16,6 +16,10 @@ export interface GovernedQueryRequest {
 
 export class Database {
   static getClient(): SupabaseClient {
+    const mock = typeof globalThis !== 'undefined' ? (globalThis as any).__MOCK_SUPABASE_CLIENT__ : null;
+    if (mock) {
+      return mock;
+    }
     if (!supabase) {
       throw new Error('[INFRASTRUCTURE ERROR] Supabase client unavailable');
     }
@@ -31,6 +35,17 @@ export class Database {
     }
 
     return user;
+  }
+
+  static async safeGetAuthenticatedUser(): Promise<User | null> {
+    try {
+      const client = this.getClient();
+      const { data: { user }, error } = await client.auth.getUser();
+      if (error || !user) return null;
+      return user;
+    } catch {
+      return null;
+    }
   }
 
   static governedQuery(request: GovernedQueryRequest) {
@@ -49,7 +64,7 @@ export class Database {
   static async governedWrite<T>(
     table: string,
     payload: GovernedPayload | readonly GovernedPayload[],
-    options: Partial<Pick<GovernedWriteInput, 'action' | 'portalType' | 'userId'>> = {},
+    options: Partial<Pick<GovernedWriteInput, 'action' | 'portalType' | 'userId' | 'matchFields'>> = {},
   ): Promise<T> {
     const context = options.portalType ? null : PortalContextResolver.resolve();
     const user = options.userId ? { id: options.userId } : await this.getAuthenticatedUser();
@@ -58,6 +73,7 @@ export class Database {
       table,
       payload,
       action: options.action,
+      matchFields: options.matchFields,
       portalType: options.portalType ?? context!.portal_type,
       userId: user.id,
     });
