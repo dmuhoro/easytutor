@@ -1,0 +1,2 @@
+lib/analytics.ts
+lib/logEvent.ts

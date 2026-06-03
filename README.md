@@ -109,4 +109,4 @@ Built a specialized component library (`SubjectGrid`, `TopicList`, `QuizEngine`,
 ---
 
 ## 📄 License
-MIT License. Created with ❤️ by **Daniel Muhoro** (Project Orchestrator) & **Antigravity AI**.
+MIT License. Created with ❤️ by **Daniel Muhoro** (Project Orchestrator).

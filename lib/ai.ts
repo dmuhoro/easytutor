@@ -1,12 +1,9 @@
-import { askTutor } from './api';
 import { getSupabaseClient } from './supabaseOps';
-import { getAIProvider, AI_PROVIDER, shouldUseCloud } from './aiProvider';
-import { generateOfflineResponse } from './ollama';
-import { generateCloudResponse } from './cloud';
+import { getAIProvider } from './aiProvider';
 import { getMemoryCachedResponse, setMemoryCachedResponse } from './cache';
-import { measurePerformance } from './performance';
-import { deduplicateRequest, retryAsync, withTimeout } from './network';
 import { globalTracer, generateTraceId } from '../observability/tracing/trace';
+import { executeWithReliability, AIProvider } from './ai/reliability';
+import { useSettingsStore } from '../store/settingsStore';
 
 export interface ExplanationParams {
   topicTitle: string;
@@ -55,64 +52,40 @@ Keep it:
       return cached;
     }
 
-    const provider = getAIProvider();
+    const { aiMode } = useSettingsStore.getState();
+    const providers: AIProvider[] = aiMode === 'local'
+      ? ['local_ollama', 'cache', 'placeholder']
+      : ['hosted_claude', 'hosted_groq', 'local_ollama', 'cache', 'placeholder'];
 
-    let responseText = '';
+    const cacheKey = `easytutor_explanation_cache:${subjectId}:${topicTitle}`;
 
-    if (provider === AI_PROVIDER.OFFLINE) {
-      responseText = await measurePerformance('AI_GENERATION', async () => {
-        return deduplicateRequest(`ai_${topicTitle}`, async () => {
-          return retryAsync(async () => {
-            return withTimeout(
-              (async () => {
-                if (
-                  shouldUseCloud({
-                    promptLength: prompt.length,
-                    complexity: masteryLevel > 70 ? 'high' : 'normal'
-                  })
-                ) {
-                  return await generateCloudResponse(prompt);
-                }
-                return await generateOfflineResponse(prompt);
-              })(),
-              15000,
-              '[AI TIMEOUT] Offline AI Generation took too long'
-            );
-          }, 3);
-        });
-      });
-    } else {
-      responseText = await measurePerformance('AI_GENERATION_ONLINE', async () => {
-        return deduplicateRequest(`ai_online_${topicTitle}`, async () => {
-          return retryAsync(async () => {
-            return withTimeout(
-              (async () => {
-                const response = await askTutor(systemPrompt, [{ role: 'user', content: prompt }]);
+    const result = await executeWithReliability<string>(
+      systemPrompt,
+      [{ role: 'user', content: prompt }],
+      {
+        providers,
+        timeoutMs: 12000,
+        retries: 2,
+        cacheKey,
+        fallbackPlaceholder: `We are currently operating offline or having trouble reaching the tutor service. Here is a baseline explanation:\n\nThis topic covers essential foundations in ${subjectId}. Please check your connection or retry in a few moments.`,
+        context: {
+          feature: 'explanation',
+          metadata: { topicTitle, masteryLevel, subjectId }
+        }
+      }
+    );
 
-                if (!response.success || !response.data) {
-                  throw new Error(response.error || 'Online AI failed');
-                }
-                return response.data;
-              })(),
-              15000,
-              '[AI TIMEOUT] Online AI Generation took too long'
-            );
-          }, 3);
-        });
-      });
-    }
-
-    if (responseText) {
-      setMemoryCachedResponse(prompt, responseText);
+    if (result.success && result.data) {
+      setMemoryCachedResponse(prompt, result.data);
     }
     
     globalTracer.endSpan(traceId, 'AI_GENERATION');
-    return responseText;
+    return result.data;
 
   } catch (err) {
     globalTracer.endSpan(traceId, 'AI_GENERATION');
     console.error('[ERROR] [AI]', err);
-    return '';
+    return `An error occurred while generating explanation for ${topicTitle}.`;
   }
 };
 

@@ -6,6 +6,7 @@ import { ComponentProps } from 'react';
 import { useRoadmapStore, LearningMode } from '../../store/roadmapStore';
 import { useAuthStore } from '../../store/authStore';
 import { updateLearningMode } from '../../lib/profileOps';
+import { track } from '../../lib/analytics';
 import { GlassView } from './GlassView';
 import { COLORS } from '../../lib/theme';
 
@@ -44,6 +45,12 @@ export function PortalSwitcher() {
       
       if (success) {
         setLearningMode(mode);
+        track('portal_selected', {
+          user_id: user.id,
+          learning_mode: mode,
+          selected_mode: mode,
+          source: 'portal_switcher',
+        });
         // Redirect to the new portal
         if (mode === 'high_school') router.replace('/(high_school)');
         else if (mode === 'university') router.replace('/(university)');

@@ -48,18 +48,7 @@ export default function QuizTab() {
 
   useEffect(() => {
     startInitialQuiz();
-    return () => {
-      const duration = Math.floor((Date.now() - startTime) / 1000);
-      if (user?.id) {
-        trackEvent('time_spent', {
-          user_id: user.id,
-          learning_mode: 'unknown',
-          screen: 'quiz',
-          duration,
-          topic: currentQuizTopic
-        });
-      }
-    };
+    return () => {};
   }, []);
 
   const getRandomTopic = () => {
@@ -91,16 +80,6 @@ export default function QuizTab() {
       preFetchNext();
     } else {
       setError('Failed to start quiz.');
-      if (user?.id) {
-        trackEvent('quiz_generation_failed', {
-          user_id: user.id,
-          learning_mode: 'unknown',
-          subjectName,
-          topicName,
-          error: 'No output',
-          provider: 'AI'
-        });
-      }
     }
     setLoading(false);
   };

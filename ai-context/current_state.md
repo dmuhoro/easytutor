@@ -1,8 +1,28 @@
 # Current State: EasyTutor
 **Version:** 1.0.0 (Production Stable)
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-30
 
 ## Active Milestones
+- [x] **Sprint 1: Make the App Stable for Real Users** (COMPLETED)
+  - [x] Universal AI reliability wrapper, timeout, exponential backoff retries, and multi-provider fallbacks in `lib/ai/reliability.ts`
+  - [x] Refactored Personalized Explanation, Roadmap, and Quiz generation in `lib/ai.ts` and `lib/api.ts`
+  - [x] Premium visual AIFeedback UX component in `components/ui/AIFeedback.tsx`
+  - [x] Full validation test suite green in `tests/reliability/aiReliability.test.ts`
+  - [x] Analytics & Observability Hardening — `ai_call_logs` + `user_events` idempotent migration hardening, offline analytics queue partial-failure safety, foreground flush, lifecycle session events, portal selection events, roadmap duration events, unified quiz lifecycle events, and non-blocking reliability telemetry persistence (`lib/analytics.ts`, `lib/ai/reliability.ts`, `components/QuizEngine.tsx`)
+  - [x] Analytics Integrity & Operational Intelligence — queue event envelopes (`event_id`, `created_at`), duplicate-safe/idempotent replay, server-side event id uniqueness, retention-ready offsets view, and AI operational latency/cost view (`lib/analytics.ts`, `supabase/migrations/20260527_analytics_integrity.sql`, `supabase/migrations/20260527_operational_intelligence_views.sql`)
+- [ ] **Sprint 3: KCSE Focus** (In Progress)
+  - [x] Day 1: KCSE Question Bank foundation (schema, seed, offline-first logic, UI, and analytics) in `lib/questionBank.ts`, `app/(shared)/question-bank.tsx`, `tests/questionBank.test.ts`, and `supabase/migrations/20260531_question_bank.sql`
+  - [x] Day 2: Question Bank to Practice System (Physics & Chemistry added, topic & difficulty filtering, practice session UI flow, `QuizEngine` integration, session tracking, and `practice_sessions` schema) in `app/(shared)/question-bank.tsx`, `app/(shared)/practice-session.tsx`, `lib/questionBank.ts`, and `supabase/migrations/20260531_practice_sessions.sql`
+  - [x] Day 3: Subject Mastery Tracking (Mastery schema, percent calculation, automatic updates after practice sessions, weak topic detection, simple Mastery Dashboard UI) in `lib/mastery.ts`, `app/(shared)/mastery.tsx`, `tests/mastery.test.ts`, and `supabase/migrations/20260531_subject_mastery.sql`
+  - [x] Day 4: Adaptive Recommendations (recommendation engine with weak/medium/strong topic prioritization, recommended questions, practice plan generation) in `lib/recommendations.ts`
+  - [x] Day 5: Learning Momentum System (daily streak engine, momentum score 0-100, practice frequency tracking, momentum dashboard, practice session integration) in `lib/streaks.ts`, `app/(shared)/momentum.tsx`, `tests/streaks.test.ts`
+- [ ] **Sprint 4: Adaptive Learning** (In Progress)
+  - [x] Day 1: Adaptive Difficulty Engine (mastery-based difficulty distribution, `buildAdaptiveQuestionSet`, practice session integration, completion insight cards, and `adaptive_session_started` / `adaptive_difficulty_changed` analytics) in `lib/adaptiveDifficulty.ts`, `app/(shared)/practice-session.tsx`, and `tests/adaptiveDifficulty.test.ts`
+- [ ] **Sprint 2: Differentiated Learning Intelligence** (In Progress)
+  - [x] Day 1: AI Literacy Units 1 and 2 foundation (content persistence, progress tracking, offline caching, analytics hooks, quiz integration) in `app/(ai_literacy)/index.tsx` and `lib/aiLiteracy.ts`
+  - [x] Day 2: AI Literacy reinforcement + resume UX (missed-question remediation loop, reflective completion insight, exact resume state persistence across offline/app restarts, and new literacy resume/remediation analytics events) in `app/(ai_literacy)/index.tsx`, `components/QuizEngine.tsx`, and `lib/aiLiteracy.ts`
+  - [x] Day 3: AI Literacy mastery loop (review missed questions via QuizEngine, mastery tracking with first/best score and attempts, unit unlocking, progress overview cards, mastery celebration UX, Unit 3 content, and `ai_literacy_review_started` / `ai_literacy_mastered` analytics) in `lib/aiLiteracy.ts`, `app/(ai_literacy)/index.tsx`, `supabase/migrations/20260530_ai_literacy_mastery_unit3.sql`, and `tests/analytics/aiLiteracy.test.ts`
+  - [x] Day 4: AI Literacy spaced reinforcement (weakest section tracking, 48-hour micro-quiz review, portal bridge after Unit 3 mastery, and `ai_literacy_spaced_review_started` analytics) in `lib/aiLiteracy.ts`, `app/(ai_literacy)/index.tsx`, `supabase/migrations/20260530_ai_literacy_weakest_section.sql`, and `tests/analytics/aiLiteracy.test.ts`
 - [x] **Sprint Ω.32: Live Economic Operations + System Governance Intelligence Layer** (COMPLETED)
   - [x] Live operations governance services (governance engine, tenant oversight runtime, runtime coordinator, production control surface) in `src/services/governance/phase1LiveOperationsGovernance.ts`
   - [x] Economic runtime intelligence services (revenue stability, operational cost awareness, tenant economic health, infrastructure efficiency) in `src/services/governance/phase2EconomicRuntimeIntelligence.ts`

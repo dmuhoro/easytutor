@@ -7,7 +7,7 @@ import { useRoadmapStore, LearningMode } from "../store/roadmapStore";
 import { useAuthStore } from "../store/authStore";
 import * as Haptics from '../lib/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { trackEvent } from '../lib/analytics';
+import { track } from '../lib/analytics';
 import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from '../lib/supabaseOps';
 
 export default function Onboarding() {
@@ -75,16 +75,12 @@ export default function Onboarding() {
       setLearningMode(selectedMode);
       setOnboardingComplete(true);
       
-      // Track event if analytics available (fire-and-forget)
-      try {
-        trackEvent('onboarding_completed', {
-          user_id: user.id,
-          learning_mode: selectedMode,
-          selectedMode
-        });
-      } catch (err) {
-        console.warn('[ANALYTICS] Event tracking failed:', err);
-      }
+      track('portal_selected', {
+        user_id: user.id,
+        learning_mode: selectedMode,
+        selected_mode: selectedMode,
+        source: 'onboarding',
+      });
 
       // 3. Show Success Moment
       setShowSuccess(true);

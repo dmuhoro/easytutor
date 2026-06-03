@@ -6,6 +6,8 @@ import { RoadmapSchema, QuizQuestionSchema } from './schemas';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from './supabaseOps';
 import { resolveTopicId } from './resolveTopicId';
+import { executeWithReliability, AIProvider } from './ai/reliability';
+import { logEvent } from './logEvent';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -37,7 +39,7 @@ export type AIChatMessage = {
 
 // ─── Internal routing helpers ────────────────────────────────────────────────
 
-async function callOllama(
+export async function callOllama(
   systemPrompt: string,
   messages: AIChatMessage[],
   ollamaUrl: string,
@@ -63,7 +65,7 @@ async function callOllama(
   return raw.message?.content ?? '';
 }
 
-async function callGroq(
+export async function callGroq(
   systemPrompt: string,
   messages: AIChatMessage[],
 ): Promise<string> {
@@ -91,7 +93,7 @@ function buildAnthropicClient(): Anthropic {
   });
 }
 
-async function callAnthropic(
+export async function callAnthropic(
   systemPrompt: string,
   messages: AIChatMessage[],
 ): Promise<string> {
@@ -238,52 +240,73 @@ export async function generateStudyRoadmap(
       topic,
       subject: subjectId
     }) + "\nSTRICT RULE: You are a JSON API. Respond ONLY with raw JSON.";
-    
-    const res = await getAIResponse(fullSystemPrompt, [{ role: 'user', content: prompt }], true);
-    
-    const jsonMatch = res.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found in response");
-    
-    const parsed = JSON.parse(jsonMatch[0].trim());
-    const validation = RoadmapSchema.safeParse(parsed);
-    
-    if (!validation.success) {
-      if (retries > 0) {
-        isGeneratingRoadmap = false; // Allow retry to set it again
-        await sleep(1000);
-        return generateStudyRoadmap(topic, subjectId, topicId, userId, retries - 1);
+
+    const { aiMode } = useSettingsStore.getState();
+    const providers: AIProvider[] = aiMode === 'local'
+      ? ['local_ollama', 'cache', 'placeholder']
+      : ['hosted_claude', 'hosted_groq', 'local_ollama', 'cache', 'placeholder'];
+
+    const cacheKey = `easytutor_roadmap_cache:${userId || 'anon'}:${subjectId || 'default'}:${topicId || topic}`;
+
+    const fallbackPlaceholder = {
+      title: `7-Day Study Roadmap for ${topic}`,
+      days: [
+        { day: 1, title: `Introduction to ${topic}`, tasks: [`Read introductory material on ${topic}`, `Define key foundational terms`, `Note core sub-topics`] },
+        { day: 2, title: `Core Concepts`, tasks: [`Study primary rules or formulations`, `Work through basic practice examples`, `Review foundational concepts`] },
+        { day: 3, title: `Intermediate Exercises`, tasks: [`Attempt simple quiz questions`, `Analyze solved textbook problems`, `Discuss foundational parts with peers`] },
+        { day: 4, title: `Practical Application`, tasks: [`Apply concepts to standard test scenarios`, `Create a summary card of key processes`, `Review common errors`] },
+        { day: 5, title: `Advanced Deep-Dive`, tasks: [`Solve complex multi-part questions`, `Read explanation for challenging edge cases`, `Compare theoretical concepts`] },
+        { day: 6, title: `Integration and Synthesis`, tasks: [`Summarize topic insights in own words`, `Formulate practice summaries`, `Test self on memory terms`] },
+        { day: 7, title: `Final Mastery Check`, tasks: [`Complete comprehensive mock test`, `Revise any remaining weak focus items`, `Conclude study roadmap session`] }
+      ]
+    };
+
+    const result = await executeWithReliability<any>(
+      fullSystemPrompt,
+      [{ role: 'user', content: prompt }],
+      {
+        providers,
+        timeoutMs: 15000,
+        retries,
+        cacheKey,
+        validationSchema: RoadmapSchema,
+        fallbackPlaceholder,
+        context: {
+          feature: 'roadmap',
+          metadata: { topic, subjectId, topicId, userId }
+        }
       }
-      throw new Error(`Validation failed: ${validation.error.message}`);
-    }
-    
+    );
+
     isGeneratingRoadmap = false;
 
-    if (userId && subjectId && topicId) {
-      const client = getSupabaseClient();
-      const user = await getAuthenticatedUser();
-      const resolvedTopicId = await resolveTopicId(topicId || topic, subjectId);
-      if (!resolvedTopicId) {
-        throw new Error('[FATAL] topic_id resolution failed');
-      }
-      const { error } = await client.from('cached_roadmaps').upsert({
-        user_id: user.id,
-        subject_id: subjectId,
-        topic_id: resolvedTopicId,
-        roadmap_json: validation.data
-      }, { onConflict: 'user_id,topic_id' });
-      if (error) {
-        logSupabaseError('cached_roadmaps', 'upsert', error);
-        throw error;
+    if (result.success && result.data && userId && subjectId && topicId) {
+      try {
+        const client = getSupabaseClient();
+        const user = await getAuthenticatedUser();
+        const resolvedTopicId = await resolveTopicId(topicId || topic, subjectId);
+        if (resolvedTopicId) {
+          const { error } = await client.from('cached_roadmaps').upsert({
+            user_id: user.id,
+            subject_id: subjectId,
+            topic_id: resolvedTopicId,
+            roadmap_json: result.data
+          }, { onConflict: 'user_id,topic_id' });
+          if (error) {
+            logSupabaseError('cached_roadmaps', 'upsert', error);
+          }
+        }
+      } catch (dbErr) {
+        // Log but don't fail the roadmap generation
+        void logEvent('WARN', '[ROADMAP] Failed to persist generated roadmap to Supabase', {
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr)
+        });
       }
     }
 
-    return { success: true, data: validation.data };
+    return { success: result.success, data: result.data, error: result.error };
   } catch (error: any) {
     isGeneratingRoadmap = false;
-    if (retries > 0) {
-      await sleep(1000);
-      return generateStudyRoadmap(topic, subjectId, topicId, userId, retries - 1);
-    }
     return { success: false, error: error.message };
   }
 }
@@ -294,6 +317,19 @@ export async function generateQuizQuestion(
   retries = 2
 ): Promise<{ success: true; data: any } | { success: false; error: string }> {
   const cacheKey = `easytutor_quiz_cache_v1:${unit}:${topic}`;
+  
+  const fallbackPlaceholder = {
+    question: `Practice check: Which statement best describes "${topic}" inside "${unit}"?`,
+    options: [
+      'It is a fundamental concept in this topic.',
+      'It is unrelated to this topic.',
+      'It is only used in highly specialized situations.',
+      'It is not part of the standard syllabus.',
+    ],
+    correct: 0,
+    explanation: `Served offline practice question for "${topic}". Select the first option as baseline practice validation.`,
+  };
+
   try {
     const { learningMode } = useRoadmapStore.getState();
     const fullSystemPrompt = buildSystemPrompt({
@@ -305,67 +341,69 @@ export async function generateQuizQuestion(
     
     const userMessage = `Generate a challenging multiple-choice question for the unit '${unit}' on the topic '${topic}'.`;
 
-    const outputText = await getAIResponse(
+    const { aiMode } = useSettingsStore.getState();
+    const providers: AIProvider[] = aiMode === 'local'
+      ? ['local_ollama', 'placeholder']
+      : ['hosted_claude', 'hosted_groq', 'local_ollama', 'placeholder'];
+
+    const result = await executeWithReliability<any>(
       fullSystemPrompt,
       [{ role: 'user', content: userMessage }],
-      true, 
+      {
+        providers,
+        timeoutMs: 12000,
+        retries,
+        validationSchema: QuizQuestionSchema,
+        fallbackPlaceholder,
+        context: {
+          feature: 'quiz',
+          metadata: { unit, topic }
+        }
+      }
     );
 
-    const jsonString = outputText.match(/\{[\s\S]*\}/)?.[0] ?? outputText;
-    const parsed = JSON.parse(jsonString.trim());
-    const validation = QuizQuestionSchema.safeParse(parsed);
-    
-    if (!validation.success) {
-      if (retries > 0) {
-        await sleep(1000);
-        return generateQuizQuestion(unit, topic, retries - 1);
+    // If successful and it is not a fallback placeholder, write to our local array cache for subsequent offline runs
+    if (result.success && result.provider !== 'placeholder' && result.data) {
+      try {
+        const raw = await AsyncStorage.getItem(cacheKey);
+        const existing: any[] = raw ? JSON.parse(raw) : [];
+        const next = [...existing, result.data].slice(-50);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(next));
+      } catch {
+        // never crash
       }
-      throw new Error(`Validation failed: ${validation.error.message}`);
+      return { success: true, data: result.data };
     }
 
-    // Cache successful question locally for offline use.
+    // If result was placeholder/failed, try loading from local offline array cache
     try {
       const raw = await AsyncStorage.getItem(cacheKey);
-      const existing: any[] = raw ? JSON.parse(raw) : [];
-      const next = [...existing, validation.data].slice(-50);
-      await AsyncStorage.setItem(cacheKey, JSON.stringify(next));
-    } catch {
-      // never crash
-    }
-
-    return { success: true, data: validation.data };
-  } catch (error: unknown) {
-    if (retries > 0) {
-      await sleep(1000);
-      return generateQuizQuestion(unit, topic, retries - 1);
-    }
-    // Offline-first fallback: serve cached questions if available.
-    try {
-      const raw = await AsyncStorage.getItem(cacheKey);
-      const cached: any[] = raw ? JSON.parse(raw) : [];
-      if (cached.length > 0) {
-        const pick = cached[Math.floor(Math.random() * cached.length)];
+      const cachedArray: any[] = raw ? JSON.parse(raw) : [];
+      if (cachedArray.length > 0) {
+        const pick = cachedArray[Math.floor(Math.random() * cachedArray.length)];
+        void logEvent('INFO', `[QUIZ] Served random cached question from offline array cache for ${topic}`);
         return { success: true, data: pick };
       }
     } catch {
       // ignore
     }
 
-    // Final fallback: deterministic placeholder (never block the quiz UI completely).
-    const message = error instanceof Error ? error.message : 'Could not generate quiz question.';
-    return {
-      success: true,
-      data: {
-        question: `Offline practice: Which statement best describes "${topic}" in "${unit}"?`,
-        options: [
-          'It is a core concept in this topic.',
-          'It is unrelated to this topic.',
-          'It is only used in advanced cases.',
-          'It is not part of the syllabus.',
-        ],
-        correct: 0,
-        explanation: `You are in offline mode or the AI service failed (${message}). This is a placeholder question—retry later for generated questions.`,
-      },
-    };
+    // Serve deterministic fallback placeholder if everything fails
+    return { success: true, data: fallbackPlaceholder };
+
+  } catch (error: any) {
+    // Attempt local array cache as a final backup
+    try {
+      const raw = await AsyncStorage.getItem(cacheKey);
+      const cachedArray: any[] = raw ? JSON.parse(raw) : [];
+      if (cachedArray.length > 0) {
+        const pick = cachedArray[Math.floor(Math.random() * cachedArray.length)];
+        return { success: true, data: pick };
+      }
+    } catch {
+      // ignore
+    }
+
+    return { success: true, data: fallbackPlaceholder };
   }
 }

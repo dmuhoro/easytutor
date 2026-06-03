@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AppState, AppStateStatus, View, Text, TouchableOpacity } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -10,7 +10,7 @@ import { isSupabaseAvailable } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useProgressStore } from '../store/progressStore';
 import { LearningMode, useRoadmapStore } from '../store/roadmapStore';
-import { trackEvent } from '../lib/analytics';
+import { track, flushAnalyticsQueue } from '../lib/analytics';
 import { GlobalErrorBoundary } from '../components/GlobalErrorBoundary';
 import { initializeKnowledge, syncToRemote } from '../data/knowledgeStore';
 import { retryFailedSyncs } from '../services/syncEngine';
@@ -43,7 +43,6 @@ export default function RootLayout() {
   const { setUserId: setProgressUserId, awardLoginXP } = useProgressStore();
   const segments = useSegments();
   const router = useRouter();
-  const hasTrackedSignup = useRef(false);
 
   const isAppReady = fontsLoaded && !authLoading && !isProfileLoading;
   const isKnownLearningMode = (mode: string): mode is LearningMode =>
@@ -67,7 +66,6 @@ export default function RootLayout() {
       const client = getSupabaseClient();
       const authUser = await getAuthenticatedUser();
       console.log('[PROFILE] Sync start:', userId);
-      await trackEvent('profile_sync_started', { user_id: authUser.id });
       setLogContext({ userId: authUser.id });
 
       const profile = await retry(async () => {
@@ -115,15 +113,10 @@ export default function RootLayout() {
       setOnboardingComplete(Boolean(safeProfile.onboarding_complete));
       setProfileError(null);
 
-      await trackEvent('profile_sync_success', { user_id: userId });
       console.log('[PROFILE] Sync success');
       return safeProfile;
     } catch (err) {
       console.error('[PROFILE FATAL]', err);
-      await trackEvent('profile_sync_failed', {
-        user_id: userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
       setProfileError('Profile sync failed. Using offline defaults.');
       return null;
     } finally {
@@ -147,6 +140,27 @@ export default function RootLayout() {
       }
     })();
 
+    // Flush offline analytics queue on foreground — fire-and-forget
+    let previousState: AppStateStatus = AppState.currentState;
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      const userId = useAuthStore.getState().session?.user?.id;
+      const learningMode = useRoadmapStore.getState().learningMode ?? 'unknown';
+
+      if (nextState === 'active') {
+        void flushAnalyticsQueue();
+        if (userId) {
+          void track('session_started', { user_id: userId, learning_mode: learningMode });
+        }
+      } else if (previousState === 'active' && (nextState === 'inactive' || nextState === 'background')) {
+        if (userId) {
+          void track('session_ended', { user_id: userId, learning_mode: learningMode });
+        }
+      }
+      previousState = nextState;
+    };
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+
+    let authUnsubscribe: (() => void) | undefined;
     try {
       const client = getSupabaseClient();
       const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
@@ -159,34 +173,28 @@ export default function RootLayout() {
           setRoadmapUserId(session.user.id);
           await syncProfile(session.user.id);
           
-          // Track signup event only once upon initial sign-in/session creation
-          if (event === 'SIGNED_IN' && session?.user?.id && !hasTrackedSignup.current) {
-            hasTrackedSignup.current = true;
-            try {
-              await trackEvent('user_signed_up', {
-                user_id: session.user.id,
-                learning_mode: useRoadmapStore.getState().learningMode || 'unknown'
-              });
-            } catch (err) {
-              console.error('[ANALYTICS ERROR]', err);
-            }
+          if (event === 'SIGNED_IN' && session?.user?.id) {
           }
 
           await awardLoginXP();
         } else {
-          hasTrackedSignup.current = false;
           setSession(null);
           setProgressUserId(null);
           setRoadmapUserId(null);
           setIsProfileLoading(false);
         }
       });
-
-      return () => subscription.unsubscribe();
+      authUnsubscribe = () => subscription.unsubscribe();
     } catch (err) {
       logSupabaseError('auth', 'select', err);
       setIsProfileLoading(false);
     }
+
+    return () => {
+      appStateSubscription.remove();
+      authUnsubscribe?.();
+    };
+
   }, []);
 
   useEffect(() => {
@@ -256,6 +264,7 @@ export default function RootLayout() {
         <Stack.Screen name="(high_school)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(university)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(self_directed)" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(ai_literacy)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="explore" options={{ animation: 'fade' }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />

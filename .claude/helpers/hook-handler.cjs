@@ -82,7 +82,23 @@ async function main() {
   const prompt = hookInput.prompt || hookInput.command || hookInput.toolInput
     || process.env.PROMPT || process.env.TOOL_INPUT_command || args.join(' ') || '';
 
+  function allow() {
+    console.log(JSON.stringify({
+      decision: "allow"
+    }));
+  }
+
+  function block(reason) {
+    console.log(JSON.stringify({
+      decision: "block",
+      reason
+    }));
+  }
+
 const handlers = {
+  'pre-edit': () => {
+    allow();
+  },
   'route': () => {
     // Inject ranked intelligence context before routing
     if (intelligence && intelligence.getContext) {
@@ -139,11 +155,11 @@ const handlers = {
     const dangerous = ['rm -rf /', 'format c:', 'del /s /q c:\\', ':(){:|:&};:'];
     for (const d of dangerous) {
       if (cmd.includes(d)) {
-        console.error(`[BLOCKED] Dangerous command detected: ${d}`);
-        process.exit(1);
+        block(`Dangerous command detected: ${d}`);
+        return;
       }
     }
-    console.log('[OK] Command validated');
+    allow();
   },
 
   'post-edit': () => {
@@ -256,7 +272,7 @@ const handlers = {
     }
   } else if (command) {
     // Unknown command - pass through without error
-    console.log(`[OK] Hook: ${command}`);
+    allow();
   } else {
     console.log('Usage: hook-handler.cjs <route|pre-bash|post-edit|session-restore|session-end|pre-task|post-task|stats>');
   }

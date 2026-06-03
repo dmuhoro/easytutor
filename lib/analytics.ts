@@ -1,104 +1,268 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from './supabaseOps';
 
-export type AnalyticsEvent = 
-  | 'user_signed_up' 
-  | 'onboarding_completed' 
-  | 'roadmap_generated' 
-  | 'task_completed' 
-  | 'quiz_started' 
-  | 'quiz_completed' 
-  | 'user_returned'
-  | 'user_shared_progress'
-  | 'roadmap_generation_started'
-  | 'roadmap_generation_completed'
-  | 'roadmap_generation_failed'
-  | 'roadmap_abandoned'
-  | 'quiz_generation_failed'
-  | 'time_spent'
-  | 'profile_sync_started'
-  | 'profile_sync_success'
-  | 'profile_sync_failed';
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
-export interface AIFeedback {
-  user_id?: string;
-  learning_mode?: string;
-  content_type: 'roadmap' | 'quiz';
-  rating: 'positive' | 'negative';
-  feedback_text?: string;
-  topic?: string;
-}
+/**
+ * STRICTLY allowed event types per Sprint 1 Day 2 mandate.
+ */
+export type AnalyticsEvent =
+  | 'user_registered'
+  | 'portal_selected'
+  | 'roadmap_generated'
+  | 'quiz_started'
+  | 'quiz_completed'
+  | 'quiz_score_recorded'
+  | 'session_started'
+  | 'session_ended'
+  | 'ai_literacy_started'
+  | 'ai_literacy_unit_completed'
+  | 'ai_literacy_resumed'
+  | 'ai_literacy_remediation_viewed'
+  | 'ai_literacy_review_started'
+  | 'ai_literacy_mastered'
+  | 'ai_literacy_spaced_review_started'
+  | 'question_bank_started'
+  | 'question_bank_completed'
+  | 'practice_started'
+  | 'practice_completed'
+  | 'mastery_updated'
+  | 'weak_topic_detected'
+  | 'streak_updated'
+  | 'momentum_score_updated'
+  | 'adaptive_session_started'
+  | 'adaptive_difficulty_changed';
 
 export interface EventMetadata {
+  user_id?: string;
+  learning_mode?: string;
   [key: string]: any;
 }
 
-const sendEventToSupabase = async (event: AnalyticsEvent, payload: EventMetadata = {}) => {
-  const { user_id, learning_mode, ...metadata } = payload;
+export interface AICallLogPayload {
+  user_id?: string;
+  feature: 'explanation' | 'quiz' | 'roadmap' | 'other';
+  provider: 'hosted_claude' | 'hosted_groq' | 'local_ollama' | 'cache' | 'placeholder';
+  model?: string;
+  portal?: string;
+  success: boolean;
+  latency_ms?: number;
+  attempts_used?: number;
+  estimated_cost_usd?: number;
+  error_code?: string;
+  error_message?: string;
+  metadata?: Record<string, any>;
+}
 
-  const eventPayload = {
-    user_id,
-    event_name: event,
-    learning_mode: learning_mode || 'unknown',
-    metadata,
-    timestamp: new Date().toISOString(),
-  };
+// ─────────────────────────────────────────────────────────────────────────────
+// Offline Queue (AsyncStorage-backed, FIFO, max 100 entries)
+// ─────────────────────────────────────────────────────────────────────────────
 
-  if (__DEV__) {
-    console.log(`[Analytics] ${event}`, eventPayload);
+const OFFLINE_QUEUE_KEY = 'analytics_queue'; // Mandated key
+const OFFLINE_QUEUE_MAX = 100;
+
+interface QueuedEvent {
+  event_id: string;
+  created_at: string;
+  event: AnalyticsEvent;
+  payload: EventMetadata;
+}
+
+let isFlushingQueue = false;
+let enqueueChain: Promise<void> = Promise.resolve();
+
+const safeRandomId = (): string => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // Ignore and use fallback
   }
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
 
-  // Background sync to Supabase
+const dedupeByEventId = (events: QueuedEvent[]): QueuedEvent[] => {
+  const map = new Map<string, QueuedEvent>();
+  for (const entry of events) {
+    if (!map.has(entry.event_id)) {
+      map.set(entry.event_id, entry);
+    }
+  }
+  return [...map.values()];
+};
+
+const enqueueOfflineEvent = async (entry: QueuedEvent): Promise<void> => {
+  enqueueChain = enqueueChain.then(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      const existing: QueuedEvent[] = raw ? JSON.parse(raw) : [];
+
+      // Cap at 100 — FIFO
+      const next = dedupeByEventId([...existing, entry]).slice(-OFFLINE_QUEUE_MAX);
+      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(next));
+    } catch {
+      // Never throw in analytics
+    }
+  });
+
+  await enqueueChain;
+};
+
+/**
+ * Flushes all queued offline events to Supabase.
+ * Call this on AppState 'active' (foreground).
+ */
+export const flushAnalyticsQueue = async (): Promise<void> => {
+  if (isFlushingQueue) return;
+  isFlushingQueue = true;
+  try {
+    const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return;
+
+    const queued = dedupeByEventId(JSON.parse(raw) as QueuedEvent[]);
+    if (queued.length === 0) return;
+
+    if (__DEV__) {
+      console.log(`[Analytics] Flushing ${queued.length} queued offline events`);
+    }
+
+    // Send each queued event and preserve only failures
+    const successfulEventIds = new Set<string>();
+    const failedById = new Map<string, QueuedEvent>();
+    for (const item of queued) {
+      try {
+        await sendEventToSupabase(item);
+        successfulEventIds.add(item.event_id);
+      } catch {
+        failedById.set(item.event_id, item);
+      }
+    }
+    
+    // Merge with latest queue to avoid dropping events added mid-flush.
+    const latestRaw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+    const latestQueued = latestRaw ? (JSON.parse(latestRaw) as QueuedEvent[]) : [];
+    const nextQueue = dedupeByEventId(
+      latestQueued
+        .filter((entry) => !successfulEventIds.has(entry.event_id))
+        .map((entry) => failedById.get(entry.event_id) ?? entry),
+    ).slice(-OFFLINE_QUEUE_MAX);
+
+    if (nextQueue.length === 0) {
+      await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+      return;
+    }
+
+    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(nextQueue));
+  } catch {
+    // Never throw
+  } finally {
+    isFlushingQueue = false;
+  }
+};
+
+const sendEventToSupabase = async (entry: QueuedEvent): Promise<void> => {
+  const { user_id, learning_mode, ...metadata } = entry.payload;
+
   try {
     const client = getSupabaseClient();
     const user = await getAuthenticatedUser();
+    
     const { error } = await client.from('user_events').insert({
-      ...eventPayload,
-      user_id: user.id
+      user_id: user.id,
+      event_name: entry.event,
+      event_id: entry.event_id,
+      learning_mode: learning_mode || 'unknown',
+      metadata,
+      timestamp: entry.created_at,
     });
+
     if (error) {
       logSupabaseError('user_events', 'insert', error);
-      throw error;
+      throw error; // Trigger re-enqueue in caller
     }
   } catch (err) {
-    logSupabaseError('user_events', 'insert', err);
+    throw err;
   }
 };
 
-export const safeTrackEvent = async (event: AnalyticsEvent, payload: EventMetadata = {}) => {
-  if (!payload.user_id) {
-    if (__DEV__) {
-      console.warn('[Analytics] Skipped event due to missing user_id');
-    }
-    return;
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified track() Utility
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Unified tracking utility.
+ * Fire-and-forget, offline-first, never throws.
+ */
+export const track = (event: AnalyticsEvent, payload: EventMetadata = {}): void => {
+  if (__DEV__) {
+    console.log(`[Analytics] Track: ${event}`, payload);
   }
 
-  await sendEventToSupabase(event, payload);
-};
-
-export const trackEvent = async (event: AnalyticsEvent, payload: EventMetadata = {}) => {
-  await safeTrackEvent(event, payload);
-};
-
-export const logAIFeedback = async (feedback: AIFeedback) => {
-  const payload = {
-    ...feedback,
-    user_id: feedback.user_id ?? null,
-    learning_mode: feedback.learning_mode || 'unknown',
+  const entry: QueuedEvent = {
+    event_id: safeRandomId(),
     created_at: new Date().toISOString(),
+    event,
+    payload,
   };
 
-  try {
-    const client = getSupabaseClient();
-    const user = await getAuthenticatedUser();
-    const { error } = await client.from('ai_feedback').insert({
-      ...payload,
-      user_id: user.id
-    });
-    if (error) {
-      logSupabaseError('ai_feedback', 'insert', error);
-      throw error;
+  // Fire-and-forget
+  void (async () => {
+    try {
+      await sendEventToSupabase(entry);
+    } catch {
+      // Network failure or Supabase error — queue offline
+      await enqueueOfflineEvent(entry);
     }
-  } catch (err) {
-    logSupabaseError('ai_feedback', 'insert', err);
+  })();
+};
+
+// Legacy compatibility (optional, but good to keep if used elsewhere)
+export const trackEvent = (event: any, payload: any) => track(event as AnalyticsEvent, payload);
+export const safeTrackEvent = (event: any, payload: any) => track(event as AnalyticsEvent, payload);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// logAICall — persists AI call results to ai_call_logs
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const logAICall = (log: AICallLogPayload): void => {
+  if (__DEV__) {
+    console.log(`[Analytics][AI] ${log.feature} via ${log.provider}`, {
+      success: log.success,
+      latency_ms: log.latency_ms,
+      cost: log.estimated_cost_usd,
+    });
   }
+
+  // Fire-and-forget
+  void (async () => {
+    try {
+      const client = getSupabaseClient();
+      const user = await getAuthenticatedUser();
+
+      const { error } = await client.from('ai_call_logs').insert({
+        user_id: user.id,
+        feature: log.feature,
+        provider: log.provider,
+        model: log.model ?? null,
+        portal: log.portal ?? null,
+        success: log.success,
+        latency_ms: log.latency_ms ?? null,
+        attempts_used: log.attempts_used ?? null,
+        estimated_cost_usd: log.estimated_cost_usd ?? 0,
+        error_code: log.error_code ?? null,
+        error_message: log.error_message ?? null,
+        metadata: log.metadata ?? {},
+        created_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        logSupabaseError('ai_call_logs', 'insert', error);
+      }
+    } catch {
+      // Never throw in analytics
+    }
+  })();
 };

@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { supabase, isSupabaseAvailable } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { track } from '../../lib/analytics';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -35,12 +36,16 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       if (isSignUp) {
-        const { error } = await supabase!.auth.signUp({
+        const { data, error } = await supabase!.auth.signUp({
           email,
           password,
         });
 
         if (error) throw error;
+        // Track sign-up event — user_id available immediately from signup response
+        if (data.user?.id) {
+          track('user_registered', { user_id: data.user.id });
+        }
         Alert.alert('Success', 'Check your email for the confirmation link!');
       } else {
         const { error } = await supabase!.auth.signInWithPassword({ email, password });

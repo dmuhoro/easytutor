@@ -8,6 +8,7 @@ import { useAuthStore } from "../../store/authStore";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { getAuthenticatedUser, getSupabaseClient, logSupabaseError } from "../../lib/supabaseOps";
+import { track } from "../../lib/analytics";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -60,6 +61,12 @@ export default function SettingsScreen() {
       }
 
       setLearningMode(newMode);
+      track('portal_selected', {
+        user_id: authUser.id,
+        learning_mode: newMode,
+        selected_mode: newMode,
+        source: 'settings',
+      });
       
       // Redirect to new portal
       if (newMode === 'high_school') router.replace('/(high_school)');

@@ -58,13 +58,7 @@ export default function SelfDirectedRoadmap() {
     
     setLoading(true);
     setError(null);
-    if (userId) {
-      trackEvent('roadmap_generation_started', {
-        user_id: userId,
-        learning_mode: learningMode,
-        topic
-      });
-    }
+    const generationStartedAt = Date.now();
     try {
       const res = await generateStudyRoadmap(topic);
       if (res.success && res.data) {
@@ -80,17 +74,13 @@ export default function SelfDirectedRoadmap() {
         // Auto-save on generation
         saveRoadmap(newRoadmap, 'self_directed');
         if (userId) {
-          trackEvent('roadmap_generation_completed', {
-            user_id: userId,
-            learning_mode: learningMode,
-            topic,
-            title: res.data.title
-          });
           trackEvent('roadmap_generated', {
             user_id: userId,
             learning_mode: learningMode,
             topic,
-            title: res.data.title
+            title: res.data.title,
+            duration_ms: Date.now() - generationStartedAt,
+            source: 'self_directed_roadmap',
           });
         }
         
@@ -101,27 +91,9 @@ export default function SelfDirectedRoadmap() {
         setTimeout(() => setShowFeedback(true), 4000);
       } else {
         setError(res.error || "Failed to generate roadmap.");
-        if (userId) {
-          trackEvent('roadmap_generation_failed', {
-            user_id: userId,
-            learning_mode: learningMode,
-            topic,
-            error: res.error,
-            provider: 'AI'
-          });
-        }
       }
     } catch (err: any) {
       console.error('Generation Error:', err);
-      if (userId) {
-        trackEvent('roadmap_generation_failed', {
-          user_id: userId,
-          learning_mode: learningMode,
-          topic,
-          error: err.message,
-          provider: 'AI'
-        });
-      }
     } finally {
       setLoading(false);
     }

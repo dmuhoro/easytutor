@@ -47,6 +47,7 @@ export default function HighSchoolRoadmap() {
     
     setLoading(true);
     setError(null);
+    const generationStartedAt = Date.now();
     try {
       // 1. Check local state (unless forcing)
       if (!force) {
@@ -93,7 +94,9 @@ export default function HighSchoolRoadmap() {
           learning_mode: 'high_school',
           topic,
           title: newRoadmap.title,
-          subjectId: subject
+          subjectId: subject,
+          duration_ms: Date.now() - generationStartedAt,
+          source: 'high_school_roadmap',
         });
       } else {
         setError("Failed to generate roadmap.");

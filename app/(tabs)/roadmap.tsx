@@ -4,12 +4,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoadmapStore } from "../../store/roadmapStore";
+import { useAuthStore } from "../../store/authStore";
 import { RoadmapView } from "../../components/RoadmapView";
 import * as Haptics from '../../lib/haptics';
+import { safeTrackEvent } from '../../lib/analytics';
 
 export default function RoadmapTab() {
   const router = useRouter();
   const { roadmaps, checkedTasks, toggleTask, removeRoadmap } = useRoadmapStore();
+  const { user } = useAuthStore();
   
   // Show the most recent roadmap by default
   const activeRoadmap = roadmaps[0];
@@ -18,6 +21,14 @@ export default function RoadmapTab() {
     if (!activeRoadmap) return;
     Haptics.impactAsync('light');
     toggleTask(activeRoadmap.id, day, task);
+    if (user?.id) {
+      void safeTrackEvent('task_completed', {
+        user_id: user.id,
+        topic: activeRoadmap.topic,
+        day,
+        task,
+      });
+    }
   };
 
   const handleDelete = () => {
@@ -27,11 +38,19 @@ export default function RoadmapTab() {
       "Are you sure you want to delete this study path?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
-          style: "destructive", 
-          onPress: () => removeRoadmap(activeRoadmap.id) 
-        }
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            removeRoadmap(activeRoadmap.id);
+            if (user?.id) {
+              void safeTrackEvent('roadmap_abandoned', {
+                user_id: user.id,
+                topic: activeRoadmap.topic,
+              });
+            }
+          },
+        },
       ]
     );
   };

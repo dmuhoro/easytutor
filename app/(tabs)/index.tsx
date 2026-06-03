@@ -10,7 +10,6 @@ import { useRoadmapStore } from "../../store/roadmapStore";
 import { useAuthStore } from "../../store/authStore";
 import { useNetInfo } from "@react-native-community/netinfo";
 import { preloadQuizCache } from "../../lib/cache";
-import { trackEvent } from "../../lib/analytics";
 import { copyToClipboard } from "../../lib/clipboard";
 import * as Haptics from '../../lib/haptics';
 import { Alert } from "react-native";
@@ -20,19 +19,12 @@ import { getXPTrend, getMasteryDistribution, getStreak } from "../../lib/dashboa
 export default function HomeTab() {
   const router = useRouter();
   const { updateStreak, studyStreak, topicsStudied, xpTotal, syncPendingProgress, getLevel, lastOpenedDate, pendingProgressSync } = useProgressStore();
-  const { roadmaps, getRoadmapProgress, syncQueuedTasks, checkedTasks, learningMode } = useRoadmapStore();
+  const { roadmaps, getRoadmapProgress, syncQueuedTasks, checkedTasks } = useRoadmapStore();
   const { user } = useAuthStore();
   const { isConnected } = useNetInfo();
-  const [startTime] = React.useState(Date.now());
 
   useEffect(() => {
     updateStreak();
-    if (user?.id) {
-      trackEvent('user_returned', {
-        user_id: user.id,
-        learning_mode: learningMode
-      });
-    }
     if (isConnected) {
       preloadQuizCache();
       syncQueuedTasks();
@@ -62,17 +54,7 @@ export default function HomeTab() {
       })();
     }
 
-    return () => {
-      const duration = Math.floor((Date.now() - startTime) / 1000);
-      if (user?.id) {
-        trackEvent('time_spent', {
-          user_id: user.id,
-          learning_mode: learningMode,
-          screen: 'dashboard',
-          duration
-        });
-      }
-    };
+    return () => {};
   }, [isConnected]);
 
   const lastRoadmap = [...roadmaps].sort((a, b) => {
@@ -121,14 +103,6 @@ export default function HomeTab() {
     await copyToClipboard(message);
     Haptics.impactAsync('medium');
     Alert.alert("Copied to clipboard", "Share your progress with friends!");
-    if (user?.id) {
-      trackEvent('user_shared_progress', {
-        user_id: user.id,
-        learning_mode: learningMode,
-        totalTopicsStudied,
-        xpTotal
-      });
-    }
   };
 
   return (
@@ -203,6 +177,18 @@ export default function HomeTab() {
             </TouchableOpacity>
           )}
         </View>
+
+        <TouchableOpacity
+          className="bg-[#161920] rounded-[24px] p-5 mb-8 border border-[#2a2f3d] flex-row items-center justify-between"
+          onPress={() => router.push('/(ai_literacy)')}
+        >
+          <View>
+            <Text className="text-[#4f7cff] text-[10px] uppercase font-bold tracking-widest mb-1">Flagship Learning</Text>
+            <Text className="text-white text-lg font-bold font-syne">AI Literacy Units 1 & 2</Text>
+            <Text className="text-[#8a8fa3] text-xs font-dmsans mt-1">Offline after first load • African examples</Text>
+          </View>
+          <Ionicons name="sparkles" size={24} color="#4f7cff" />
+        </TouchableOpacity>
 
         {/* Dashboard Stats Card */}
         <View className="bg-[#161920] rounded-[32px] p-6 mb-10 border border-[#2a2f3d] shadow-2xl overflow-hidden">
@@ -389,4 +375,3 @@ export default function HomeTab() {
     </SafeAreaView>
   );
 }
-

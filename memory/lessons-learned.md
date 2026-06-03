@@ -163,3 +163,31 @@
 - **Recovery Strategies Must Be Pre-Validated:** Generating fallback strategies at runtime during an incident is risky. The `DynamicFallbackCoordinator` should maintain a pre-computed library of validated recovery paths with confidence scores.
 - **Ecosystem-Wide Adaptation Requires Cross-Tenant Learning Without Privacy Leaks:** The `EcosystemAdaptationCoordinator` learns from aggregate patterns but must never leak individual tenant data. Aggregate metrics should be computed deterministically at the boundary layer.
 - **Feedback Loop Continuity is Fragile:** The `IntelligenceFeedbackLoopManager` can easily become a source of cascading optimization errors if insights are applied too aggressively. Always include an "apply rate" limiter to prevent runaway feedback cycles.
+
+# 2026-05-24 — Sprint 1 Day 1 AI Reliability & UX Hardening
+- **Universal Wrapper Simplifies State Management:** Replacing inline retry, fallback, and timeout loops inside specific service endpoints with a generalized `executeWithReliability` wrapper dramatically reduces architectural drift and guarantees complete resilience across the platform.
+- **Micro-Dollar AI Cost Telemetry:** Real-time character-to-token estimations (`charCount / 4`) provide a zero-latency, offline-safe way to monitor multi-provider billing rates (Claude vs Groq) without bundling heavy node-native node-enc modules.
+- **Empathy-Driven Local Loading Captions:** Empathetic, cycling localized messages (e.g. "Consulting KCSE experts...") and network-aware offline banners improve student and chapati vendor trust and reduce cognitive dropoff during slow network transitions.
+- **Vitest Mock Parity is Crucial:** When refactoring low-level network calls inside utility files to use a new wrapper, ensure that existing mock structures in historical flow tests are updated to provide standard mock behaviors for the wrapper dependencies, preventing cascade test failures.
+
+# 2026-05-24 — Sprint 1 Day 2: Analytics & Observability Hardening
+- **Analytics Must Never Throw:** Every analytics path (`safeTrackEvent`, `logAICall`, `enqueueOfflineEvent`, `flushAnalyticsQueue`) wraps all operations in try/catch with silent swallowing. A crashing analytics path is worse than missing a metric — it breaks user-facing flows.
+- **Fire-and-Forget with `void`:** All analytics calls in UI components and `reliability.ts` use `void fn()` — not `await fn()`. This prevents analytics latency from bleeding into AI response latency or UI interactions. This pattern must be enforced as a project invariant.
+- **Offline Queue Must Be Optimistic:** The `flushAnalyticsQueue` clears the AsyncStorage queue *before* sending events, not after. This prevents duplicate sends on partial flush success and keeps the queue from growing unboundedly on repeated failures.
+- **AnalyticsEvent Union Is a Shared Contract:** When rewriting `analytics.ts`, any event string used anywhere in the codebase must be preserved in the union type. Dropping even one event name (`roadmap_generated`) causes TypeScript errors across unrelated portal screens. Treat the union as an additive-only contract.
+- **useEffect Cleanup Cannot Have an Early Return:** Placing `return () => cleanup()` before a `try/catch` block makes the auth listener unreachable dead code. Both cleanup subscriptions (AppState + auth) must be registered first and returned together from a single cleanup closure.
+- **AppState + Auth in the Same useEffect:** Combining the AppState foreground listener and the Supabase auth listener in one `useEffect` is correct because both are app-lifetime subscriptions. Both must be cleaned up together to prevent memory leaks and stale analytics events.
+- **FIFO Queue Cap Pattern:** AsyncStorage queue capping via `.slice(-N)` (keep the last N) correctly implements FIFO eviction — oldest events are dropped first when the queue overflows. This is the right pattern for bounded offline buffers.
+- **`user_signed_in` vs `user_signed_up` Are Distinct Events:** Auth listeners fire `SIGNED_IN` on every session restore (app start with existing token). `user_signed_up` should only fire once from the sign-up form response. Conflating these produces dramatically inflated "signup" counts in analytics.
+
+# 2026-05-27 — Sprint 1 Day 2 Follow-Through: Event Contract Enforcement
+- **Queue flush should not clear first:** Removing offline analytics before send creates a loss window during app crash/power kill. Safer pattern is send-all, retain failed subset, then persist failed queue.
+- **Single quiz instrumentation point prevents drift:** Tracking `quiz_started`, `quiz_completed`, and `quiz_score_recorded` inside shared `QuizEngine` gives consistent behavior across high-school/university/self-directed routes.
+- **Lifecycle telemetry needs transition-aware logic:** `session_ended` should only fire on active -> inactive/background transition to avoid duplicate emits during unrelated AppState changes.
+- **Strict event vocabularies reduce observability entropy:** Allowing ad-hoc event strings (`time_spent`, `quiz_generation_failed`, etc.) quickly pollutes analytics. Enforcing one limited union keeps retention and behavior dashboards queryable.
+
+# 2026-05-27 — Sprint 1 Day 3: Analytics Integrity
+- **Replay safety requires stable identity:** Queue entries need immutable `event_id` + `created_at` generated once at track time; generating IDs during retry/flush breaks idempotency.
+- **Client dedupe is not enough:** Duplicate-safe guarantees are strongest when client-side dedupe is paired with database uniqueness (`(user_id, event_id)`), especially under app restarts and network jitter.
+- **Flush must merge with latest queue state:** Reading the latest queue after send attempts prevents accidental loss of events appended during an active flush cycle.
+- **Operational views reduce debugging latency:** Precomputed daily AI telemetry and retention offset views make incident triage and cohort checks immediate without writing ad hoc SQL under pressure.

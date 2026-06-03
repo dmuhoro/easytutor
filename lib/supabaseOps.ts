@@ -16,6 +16,20 @@ export const getSupabaseClient = () => {
   return supabase;
 };
 
+export const queryAnalyticsRows = async (
+  table: string,
+  columns: string,
+  apply?: (query: any) => any,
+) => {
+  const client = getSupabaseClient();
+  let query = client.from(table as any).select(columns);
+  if (apply) {
+    query = apply(query);
+  }
+  const { data, error } = await query;
+  return { data, error };
+};
+
 export const getAuthenticatedUser = async (): Promise<User> => {
   return Database.getAuthenticatedUser();
 };
