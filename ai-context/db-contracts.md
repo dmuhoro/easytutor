@@ -51,6 +51,112 @@
 - **payload:** JSONB.
 - **created_at:** TIMESTAMPTZ.
 
+### `performance_profiles`
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **subject:** TEXT.
+- **topic:** TEXT.
+- **session_count:** INTEGER.
+- **total_questions_answered:** INTEGER.
+- **total_correct_answers:** INTEGER.
+- **average_response_time_ms:** INTEGER.
+- **fastest_response_time_ms:** INTEGER.
+- **slowest_response_time_ms:** INTEGER.
+- **accuracy_score:** NUMERIC.
+- **confidence_score:** NUMERIC.
+- **fluency_score:** NUMERIC.
+- **fluency_level:** TEXT.
+- **updated_at:** TIMESTAMPTZ.
+- **RLS:** Users can only read and write their own performance profile rows.
+
+### `learning_recommendations`
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **recommendation_key:** TEXT.
+- **subject:** TEXT.
+- **topic:** TEXT.
+- **title:** TEXT.
+- **reason:** TEXT.
+- **action_label:** TEXT.
+- **recommendation_type:** TEXT.
+- **priority:** INTEGER.
+- **confidence_score:** NUMERIC.
+- **metadata:** JSONB.
+- **updated_at:** TIMESTAMPTZ.
+- **RLS:** Users can only read and write their own recommendations.
+
+### `learning_trend_snapshots`
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **subject:** TEXT.
+- **topic:** TEXT.
+- **accuracy_score:** NUMERIC.
+- **confidence_score:** NUMERIC.
+- **fluency_score:** NUMERIC.
+- **fluency_level:** TEXT.
+- **average_response_time_ms:** INTEGER.
+- **fastest_response_time_ms:** INTEGER.
+- **slowest_response_time_ms:** INTEGER.
+- **response_speed_score:** NUMERIC.
+- **session_completed:** BOOLEAN.
+- **session_count:** INTEGER.
+- **total_questions_answered:** INTEGER.
+- **total_correct_answers:** INTEGER.
+- **completed_at:** TIMESTAMPTZ.
+- **created_at:** TIMESTAMPTZ.
+- **Indexes:** `(user_id, completed_at DESC)` and `(user_id, subject, topic)` for time-window trend queries and topic-level history lookups.
+- **RLS:** Users can only insert and read their own trend snapshots.
+
+### `learning_retention_profiles` (Sprint 4)
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **subject_id:** TEXT.
+- **topic_id:** TEXT.
+- **subtopic_id:** TEXT.
+- **level:** TEXT.
+- **last_reviewed_at:** TIMESTAMPTZ.
+- **review_count:** INTEGER.
+- **retention_score:** NUMERIC.
+- **forgetting_risk:** NUMERIC.
+- **next_review_date:** TIMESTAMPTZ.
+- **review_stage:** INTEGER.
+- **RLS:** Users can only CRUD own retention profiles.
+
+### `learning_risk_predictions` (Sprint 4)
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **topicId:** TEXT.
+- **subjectId:** TEXT.
+- **riskScore:** NUMERIC (0-100).
+- **severity:** TEXT ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').
+- **confidence:** NUMERIC (0-100).
+- **reason:** TEXT.
+- **intervention:** TEXT.
+- **RLS:** Users can only CRUD own risk predictions.
+
+### `learning_interventions` (Sprint 4)
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **topicId:** TEXT.
+- **subjectId:** TEXT.
+- **type:** TEXT (InterventionType).
+- **priorityScore:** NUMERIC (0-100).
+- **plan:** TEXT.
+- **expectedOutcome:** TEXT.
+- **estimatedImprovement:** NUMERIC.
+- **rationale:** TEXT.
+- **RLS:** Users can only CRUD own interventions.
+
+### `learning_plans` (Sprint 4)
+- **id:** UUID (PK).
+- **user_id:** UUID (FK references auth.users.id).
+- **generatedAt:** TIMESTAMPTZ.
+- **weeklyPlan:** JSONB.
+- **studyPriorities:** JSONB.
+- **recoveryPlan:** JSONB.
+- **reinforcementPlan:** JSONB.
+- **RLS:** Users can only CRUD own learning plans.
+
 ### `documents` & `document_chunks` (RAG)
 - **documents:** Store title, user_id, and metadata.
 - **document_chunks:** Store content and `embedding` (vector(384)).

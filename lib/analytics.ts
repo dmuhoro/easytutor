@@ -33,7 +33,9 @@ export type AnalyticsEvent =
   | 'streak_updated'
   | 'momentum_score_updated'
   | 'adaptive_session_started'
-  | 'adaptive_difficulty_changed';
+  | 'adaptive_difficulty_changed'
+  | 'performance_profile_updated'
+  | 'fluency_level_changed';
 
 export interface EventMetadata {
   user_id?: string;

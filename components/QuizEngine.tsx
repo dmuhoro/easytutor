@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getQuizBatch, preloadNextBatch } from "../lib/quizProvider";
@@ -15,6 +15,12 @@ import { useRoadmapStore } from '../store/roadmapStore';
 import { ProgressRing } from './ui/ProgressRing';
 import { GlassView } from './ui/GlassView';
 import { track } from '../lib/analytics';
+import {
+  buildPerformanceSessionSummary,
+  recordPerformanceSession,
+  PerformanceSessionSummary,
+} from '../lib/performanceEngine';
+import type { LearningTrendOverview } from '../lib/trendEngine';
 
 interface Question {
   question: string;
@@ -40,6 +46,8 @@ interface QuizEngineProps {
     selectedAnswers: number[];
     questions: Question[];
   }) => void;
+  onPerformanceComputed?: (summary: PerformanceSessionSummary) => void;
+  onTrendComputed?: (overview: LearningTrendOverview | null) => void;
 }
 
 export const QuizEngine: React.FC<QuizEngineProps> = ({ 
@@ -54,6 +62,8 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
   topicId: propTopicId
   ,customQuestions
   ,onFinishDetailed
+  ,onPerformanceComputed
+  ,onTrendComputed
 }) => {
   const { user } = useAuthStore();
   const { subjectId: storeSubjectId, topicId: storeTopicId } = useRoadmapStore();
@@ -80,7 +90,9 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
   const [quizStartedAt, setQuizStartedAt] = useState<number>(Date.now());
   const [hasTrackedQuizStart, setHasTrackedQuizStart] = useState(false);
   const [hasTrackedQuizEnd, setHasTrackedQuizEnd] = useState(false);
-  const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
+  const selectedAnswersRef = useRef<number[]>([]);
+  const responseTimesRef = useRef<number[]>([]);
+  const questionStartedAtRef = useRef<number>(Date.now());
 
   useEffect(() => {
     if (userId) {
@@ -115,13 +127,16 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
     setQuizStartedAt(Date.now());
     setHasTrackedQuizStart(false);
     setHasTrackedQuizEnd(false);
-    setSelectedAnswers([]);
+    selectedAnswersRef.current = [];
+    responseTimesRef.current = [];
+    questionStartedAtRef.current = Date.now();
     
     try {
       if (customQuestions && customQuestions.length > 0) {
         const normalized = customQuestions.slice(0, totalQuestions);
         setQuestionsBatch(normalized);
         setQuestionData(normalized[0]);
+        questionStartedAtRef.current = Date.now();
         setQuestionIndex(0);
         setScore(0);
         if (userId && !hasTrackedQuizStart) {
@@ -165,6 +180,7 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
         
         setQuestionsBatch(mappedBatch);
         setQuestionData(mappedBatch[0]);
+        questionStartedAtRef.current = Date.now();
         setQuestionIndex(0);
         setScore(0);
         if (userId && !hasTrackedQuizStart) {
@@ -204,13 +220,12 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
     Haptics.impactAsync('medium');
     setSelectedOption(index);
     setShowExplanation(true);
+    const responseTimeMs = Math.max(0, Date.now() - questionStartedAtRef.current);
+    responseTimesRef.current = [...responseTimesRef.current, responseTimeMs];
     
     const isCorrect = index === questionData.correct;
-    setSelectedAnswers((prev) => {
-      const next = [...prev];
-      next[questionIndex] = index;
-      return next;
-    });
+    selectedAnswersRef.current = [...selectedAnswersRef.current];
+    selectedAnswersRef.current[questionIndex] = index;
     
     if (isCorrect) {
       setScore(prev => prev + 1);
@@ -255,49 +270,85 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
   };
 
   const handleNextQuestion = async () => {
+    const finalizeQuizSession = async (finalScore: number): Promise<void> => {
+      const performanceSummary = buildPerformanceSessionSummary({
+        subject: subjectId ?? subjectName,
+        topic: topicId ?? topicName,
+        totalQuestions,
+        correctAnswers: finalScore,
+        responseTimesMs: responseTimesRef.current.slice(0, totalQuestions),
+      });
+
+      try {
+        const recordedPerformance = await recordPerformanceSession({
+          userId,
+          subject: subjectId ?? subjectName,
+          topic: topicId ?? topicName,
+          totalQuestions,
+          correctAnswers: finalScore,
+          responseTimesMs: responseTimesRef.current.slice(0, totalQuestions),
+        });
+
+        if (onTrendComputed) {
+          onTrendComputed(recordedPerformance.trendOverview);
+        }
+      } catch {
+        if (onTrendComputed) {
+          onTrendComputed(null);
+        }
+      }
+
+      if (onPerformanceComputed) {
+        onPerformanceComputed(performanceSummary);
+      }
+
+      if (userId && !hasTrackedQuizEnd) {
+        const durationMs = Date.now() - quizStartedAt;
+        track('quiz_completed', {
+          user_id: userId,
+          learning_mode: useRoadmapStore.getState().learningMode ?? 'unknown',
+          subject_id: subjectId,
+          subject_name: subjectName,
+          topic_id: topicId,
+          topic_name: topicName,
+          score: finalScore,
+          total_questions: totalQuestions,
+          duration_ms: durationMs,
+        });
+        track('quiz_score_recorded', {
+          user_id: userId,
+          learning_mode: useRoadmapStore.getState().learningMode ?? 'unknown',
+          subject_id: subjectId,
+          topic_id: topicId,
+          score: finalScore,
+          total_questions: totalQuestions,
+          percentage: totalQuestions > 0 ? Math.round((finalScore / totalQuestions) * 100) : 0,
+        });
+        setHasTrackedQuizEnd(true);
+      }
+
+      if (onFinish) {
+        onFinish(finalScore, totalQuestions);
+      }
+      if (onFinishDetailed) {
+        onFinishDetailed({
+          score: finalScore,
+          total: totalQuestions,
+          selectedAnswers: selectedAnswersRef.current.slice(0, totalQuestions),
+          questions: questionsBatch.slice(0, totalQuestions),
+        });
+      }
+    };
+
     if (questionIndex + 1 >= totalQuestions) {
        setIsFinished(true);
-       if (userId && !hasTrackedQuizEnd) {
-         const durationMs = Date.now() - quizStartedAt;
-         const finalScore = score;
-         track('quiz_completed', {
-           user_id: userId,
-           learning_mode: useRoadmapStore.getState().learningMode ?? 'unknown',
-           subject_id: subjectId,
-           subject_name: subjectName,
-           topic_id: topicId,
-           topic_name: topicName,
-           score: finalScore,
-           total_questions: totalQuestions,
-           duration_ms: durationMs,
-         });
-         track('quiz_score_recorded', {
-           user_id: userId,
-           learning_mode: useRoadmapStore.getState().learningMode ?? 'unknown',
-           subject_id: subjectId,
-           topic_id: topicId,
-           score: finalScore,
-           total_questions: totalQuestions,
-           percentage: totalQuestions > 0 ? Math.round((finalScore / totalQuestions) * 100) : 0,
-         });
-         setHasTrackedQuizEnd(true);
-       }
-       if (onFinish) {
-         onFinish(score, totalQuestions);
-       }
-       if (onFinishDetailed) {
-         onFinishDetailed({
-           score,
-           total: totalQuestions,
-           selectedAnswers,
-           questions: questionsBatch.slice(0, totalQuestions),
-         });
-       }
+       void finalizeQuizSession(score);
        return;
     }
 
     if (questionIndex + 1 < questionsBatch.length) {
       setQuestionData(questionsBatch[questionIndex + 1]);
+      questionStartedAtRef.current = Date.now();
       setQuestionIndex(prev => prev + 1);
       setSelectedOption(null);
       setShowExplanation(false);
@@ -305,17 +356,7 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
     } else {
       if (customQuestions) {
         setIsFinished(true);
-        if (onFinish) {
-          onFinish(score, totalQuestions);
-        }
-        if (onFinishDetailed) {
-          onFinishDetailed({
-            score,
-            total: totalQuestions,
-            selectedAnswers,
-            questions: questionsBatch.slice(0, totalQuestions),
-          });
-        }
+        void finalizeQuizSession(score);
         setLoading(false);
         return;
       }
@@ -340,6 +381,7 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
         
         setQuestionsBatch(prev => [...prev, ...mappedBatch]);
         setQuestionData(mappedBatch[0]);
+        questionStartedAtRef.current = Date.now();
         setQuestionIndex(prev => prev + 1);
         setSelectedOption(null);
         setShowExplanation(false);
@@ -354,17 +396,7 @@ export const QuizEngine: React.FC<QuizEngineProps> = ({
         });
       } else {
         setIsFinished(true);
-        if (onFinish) {
-          onFinish(score, totalQuestions);
-        }
-        if (onFinishDetailed) {
-          onFinishDetailed({
-            score,
-            total: totalQuestions,
-            selectedAnswers,
-            questions: questionsBatch.slice(0, totalQuestions),
-          });
-        }
+        void finalizeQuizSession(score);
       }
       
       setLoading(false);

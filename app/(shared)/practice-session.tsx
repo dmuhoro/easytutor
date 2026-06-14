@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { QuizEngine } from '../../components/QuizEngine';
 import { QuestionBankItem, savePracticeSession } from '../../lib/questionBank';
@@ -16,21 +17,33 @@ import { updateMastery } from '../../lib/mastery';
 import { recordPracticeMomentum } from '../../lib/streaks';
 import {
   buildAdaptiveQuestionSet,
-  describeSessionDifficulty,
   DifficultyLevel,
-  formatDifficultyLabel,
   getRecommendedDifficulty,
   resolveTopicMasteryPercent,
   trackAdaptiveDifficultyChanged,
   trackAdaptiveSessionStarted,
 } from '../../lib/adaptiveDifficulty';
+import {
+  PerformanceSessionSummary,
+} from '../../lib/performanceEngine';
+import type { LearningTrendOverview } from '../../lib/trendEngine';
 
 type SessionInsight = {
-  currentPrimary: DifficultyLevel;
-  currentMixLabel: string;
-  nextPrimary: DifficultyLevel;
   masteryPercent: number;
-  scorePct: number;
+  performance: PerformanceSessionSummary | null;
+};
+
+const formatTime = (milliseconds: number): string => {
+  if (milliseconds <= 0) return '0.0s';
+
+  const seconds = milliseconds / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds.toFixed(1)}s`;
 };
 
 export default function PracticeSessionScreen() {
@@ -40,13 +53,15 @@ export default function PracticeSessionScreen() {
 
   const subject = params.subject as string;
   const topic = params.topic as string;
-  const difficulty = params.difficulty as string;
 
   const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sessionPrimary, setSessionPrimary] = useState<DifficultyLevel>('medium');
   const [showInsight, setShowInsight] = useState(false);
   const [sessionInsight, setSessionInsight] = useState<SessionInsight | null>(null);
+  const [performanceInsight, setPerformanceInsight] = useState<PerformanceSessionSummary | null>(null);
+  const [trendInsight, setTrendInsight] = useState<LearningTrendOverview | null>(null);
+  const [hasCompletedSession, setHasCompletedSession] = useState(false);
 
   useEffect(() => {
     void loadQuestions();
@@ -72,7 +87,6 @@ export default function PracticeSessionScreen() {
 
   const handleFinish = async (score: number, total: number) => {
     const sessionTopic = topic && topic !== 'all' ? topic : 'Mixed Topics';
-    const scorePct = total > 0 ? Math.round((score / total) * 100) : 0;
     const beforeMastery = await resolveTopicMasteryPercent(user?.id, subject, topic);
     const beforeProfile = getRecommendedDifficulty(beforeMastery);
 
@@ -109,23 +123,27 @@ export default function PracticeSessionScreen() {
       next_mastery: afterMastery,
     });
 
-    const mixLabel = describeSessionDifficulty({
-      easy: questions.filter((q) => q.difficulty === 'easy').length,
-      medium: questions.filter((q) => q.difficulty === 'medium').length,
-      hard: questions.filter((q) => q.difficulty === 'hard').length,
-    });
-
-    setSessionInsight({
-      currentPrimary: beforeProfile.primary,
-      currentMixLabel: mixLabel,
-      nextPrimary: afterProfile.primary,
+    setSessionInsight((current) => ({
       masteryPercent: afterMastery,
-      scorePct,
-    });
+      performance: current?.performance ?? null,
+    }));
+    setHasCompletedSession(true);
+  };
+
+  const handlePerformanceComputed = (summary: PerformanceSessionSummary) => {
+    setPerformanceInsight(summary);
+    setSessionInsight((current) => ({
+      masteryPercent: current?.masteryPercent ?? 0,
+      performance: summary,
+    }));
+  };
+
+  const handleTrendComputed = (overview: LearningTrendOverview | null) => {
+    setTrendInsight(overview);
   };
 
   const handleQuizContinue = () => {
-    if (sessionInsight) {
+    if (hasCompletedSession) {
       setShowInsight(true);
       return;
     }
@@ -141,22 +159,58 @@ export default function PracticeSessionScreen() {
   }
 
   if (showInsight && sessionInsight) {
+    const summaryPerformance = sessionInsight.performance ?? performanceInsight;
+
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.insightContent}>
         <Text style={styles.insightTitle}>Session Complete</Text>
-        <Text style={styles.insightSubtitle}>Score: {sessionInsight.scorePct}%</Text>
+        <Text style={styles.insightSubtitle}>Mastery snapshot: {sessionInsight.masteryPercent}%</Text>
 
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Current Difficulty</Text>
-          <Text style={styles.cardValue}>{formatDifficultyLabel(sessionInsight.currentPrimary)}</Text>
-          <Text style={styles.cardHint}>{sessionInsight.currentMixLabel}</Text>
+          <Text style={styles.cardLabel}>Accuracy</Text>
+          <Text style={styles.cardValue}>{summaryPerformance ? `${summaryPerformance.accuracy_score}%` : '0%'}</Text>
+          <Text style={styles.cardHint}>Correct answers out of total questions</Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Recommended Next Difficulty</Text>
-          <Text style={styles.cardValue}>{formatDifficultyLabel(sessionInsight.nextPrimary)}</Text>
-          <Text style={styles.cardHint}>Mastery: {sessionInsight.masteryPercent}%</Text>
+          <Text style={styles.cardLabel}>Avg Response Time</Text>
+          <Text style={styles.cardValue}>{summaryPerformance ? formatTime(summaryPerformance.average_response_time_ms) : '0.0s'}</Text>
+          <Text style={styles.cardHint}>Average time per question</Text>
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Confidence</Text>
+          <Text style={styles.cardValue}>{summaryPerformance ? `${summaryPerformance.confidence_score}%` : '0%'}</Text>
+          <Text style={styles.cardHint}>Accuracy and speed combined</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Fluency Level</Text>
+          <Text style={styles.cardValue}>{summaryPerformance?.fluency_level ?? 'Emerging'}</Text>
+          <Text style={styles.cardHint}>From performance score and pace</Text>
+        </View>
+
+        {trendInsight && (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Progress Over Time</Text>
+            <Text style={styles.cardValue}>
+              {trendInsight.weekly?.trend_summary ?? trendInsight.trend_summary}
+            </Text>
+            <Text style={styles.cardHint}>
+              {trendInsight.weekly
+                ? `${trendInsight.weekly.session_completion_count} sessions this week · ${trendInsight.weekly.reinforcement_message}`
+                : trendInsight.reinforcement_message}
+            </Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={styles.dashboardButton}
+          onPress={() => router.push('/(shared)/learning-dashboard')}
+        >
+          <Text style={styles.dashboardButtonText}>Open Learning Dashboard</Text>
+          <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.doneButton} onPress={() => router.back()}>
           <Text style={styles.doneButtonText}>Done</Text>
@@ -178,6 +232,8 @@ export default function PracticeSessionScreen() {
           explanation: q.explanation || '',
         }))}
         onFinish={handleFinish}
+        onPerformanceComputed={handlePerformanceComputed}
+        onTrendComputed={handleTrendComputed}
         onContinue={handleQuizContinue}
       />
     </View>
@@ -241,6 +297,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
+  },
+  dashboardButton: {
+    backgroundColor: '#121823',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#35508d',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  dashboardButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginRight: 8,
   },
   doneButtonText: {
     color: '#ffffff',

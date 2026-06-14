@@ -7,6 +7,7 @@ import { useProgressStore } from "../../store/progressStore";
 import { useAuthStore } from "../../store/authStore";
 import { useRoadmapStore } from "../../store/roadmapStore";
 import { useNetInfo } from "@react-native-community/netinfo";
+import { useRouter } from "expo-router";
 import * as Haptics from '../../lib/haptics';
 import { trackEvent } from "../../lib/analytics";
 import { FeedbackModal } from "../../components/FeedbackModal";
@@ -23,6 +24,7 @@ interface Question {
 const TOTAL_QUESTIONS = 10;
 
 export default function QuizTab() {
+  const router = useRouter();
   const { markTopicDone, addQuizScore } = useProgressStore();
   const { user } = useAuthStore();
   const { isConnected } = useNetInfo();
@@ -212,11 +214,7 @@ export default function QuizTab() {
               <TouchableOpacity 
                 className="bg-[#4f7cff] flex-2 py-5 rounded-3xl flex-row items-center justify-center shadow-lg shadow-[#4f7cff]/30"
                 style={{ flex: 2 }}
-                onPress={() => {
-                  setIsFinished(false);
-                  setQuestionIndex(0);
-                  setScore(0);
-                }}
+                onPress={() => router.push('/(shared)/learning-dashboard')}
               >
                 <Text className="text-white font-bold font-syne text-lg mr-2">Dashboard</Text>
                 <Ionicons name="arrow-forward" size={18} color="#ffffff" />

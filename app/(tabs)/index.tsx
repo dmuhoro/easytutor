@@ -242,6 +242,18 @@ export default function HomeTab() {
           </View>
         </View>
 
+        <TouchableOpacity
+          className="bg-[#121823] rounded-[26px] p-5 mb-10 border border-[#35508d] flex-row items-center justify-between"
+          onPress={() => router.push('/(shared)/learning-dashboard')}
+        >
+          <View className="flex-1 mr-4">
+            <Text className="text-[#9eb8ff] text-[10px] uppercase font-bold tracking-widest mb-1">Learning Coach</Text>
+            <Text className="text-white text-lg font-bold font-syne">Open your learning dashboard</Text>
+            <Text className="text-[#cfd6ec] text-sm font-dmsans mt-1">See what you know, what needs work, and what to do next.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#4f7cff" />
+        </TouchableOpacity>
+
 
         {/* Roadmaps Section */}
         <View className="mb-10">
